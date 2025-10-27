@@ -21,3 +21,8 @@ Open Source Tool Links Summary
 ‌全链路覆盖‌：整合模型调用、微调、评估及优化等环节
 ‌社区协作‌：以开源社区模式持续更新内容
 特别适合希望系统学习大模型应用开发的初学者。‌
+
+‌Causalnex‌
+链接：https://github.com/quantumblacklabs/causalnex‌
+‌定位‌：基于贝叶斯网络（Bayesian Networks）的‌因果发现与结构学习‌工具包，由麦肯锡旗下 QuantumBlack Labs 开发并开源。
+‌核心目标‌：从观测数据中自动推断变量间的‌因果结构‌，构建可解释的因果图模型，支持因果效应估计。

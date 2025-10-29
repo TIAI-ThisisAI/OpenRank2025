@@ -30,7 +30,7 @@ DataEase 是开源的数据可视化分析工具，帮助用户快速分析数�
 DataEase 支持丰富的数据源连接，能够通过拖拉拽方式快速制作图表，并可以方便地与他人分享。
 https://www.fit2cloud.com/dataease/index.html
 
-‌5. datart‌
+5. datart‌
 ‌完全开源‌：企业级功能免费使用，支持中英文界面，提供图表插件机制和二次开发能力‌
 访问链接：https://github.com/running-elephant/datart
 支持多种数据源连接，具备强大的数据整合能力

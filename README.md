@@ -1,4 +1,4 @@
-<img width="880" height="260" alt="image" src="https://github.com/user-attachments/assets/ae8c54f7-40bb-4b77-a709-335c7206543b" />
+<img width="880" height="220" alt="image" src="https://github.com/user-attachments/assets/05d5d82d-8eac-4375-8965-751871233db2" />
 
 **参赛选手：** 彭佳恒 张雨昂 张雨欣
 

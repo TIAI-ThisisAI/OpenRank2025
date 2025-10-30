@@ -28,3 +28,9 @@ Open Source Tool Links Summary
 链接：https://github.com/quantumblacklabs/causalnex‌
 ‌定位‌：基于贝叶斯网络（Bayesian Networks）的‌因果发现与结构学习‌工具包，由麦肯锡旗下 QuantumBlack Labs 开发并开源。
 ‌核心目标‌：从观测数据中自动推断变量间的‌因果结构‌，构建可解释的因果图模型，支持因果效应估计。
+
+‌（4）LLaMA-Factory
+介绍：LLaMA-Factory 是一个低代码的大规模语言模型（LLM）训练框架，它集合了大模型各种好用的开源工具，简化了大模型的微调、评估和部署过程，降低了使用难度。
+截至2025年10月已获得超15k星标，被亚马逊、英伟达、阿里云等企业采用。‌‌
+‌技术特点‌：支持100+主流模型的全链路训练方法，包括LLaMA、Qwen、ChatGLM等系列，适配从32比特全参数到2比特QLoRA的多精度配置。‌‌
+链接：https://github.com/hiyouga/LLaMA-Factory

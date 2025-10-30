@@ -1,4 +1,4 @@
-**可以在这里更新一些比赛相关信息～**
+<img width="880" height="260" alt="image" src="https://github.com/user-attachments/assets/ae8c54f7-40bb-4b77-a709-335c7206543b" />
 
 **参赛选手：** 彭佳恒 张雨昂 张雨欣
 

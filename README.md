@@ -6,6 +6,8 @@
 
 **队员介绍**
 
+<img width="50" height="50" alt="image" src="https://github.com/user-attachments/assets/b9a58cc3-e9fd-4e41-a312-af17393b3a98" /> <img width="50" height="50" alt="image" src="https://github.com/user-attachments/assets/3789bc09-9f9c-4c20-aa26-bfb3fa82d7c0" /> <img width="50" height="50" alt="image" src="https://github.com/user-attachments/assets/aaba86cc-cdf6-41d2-9e09-be400515955a" />
+
 彭佳恒：华东师范大学 数据科学与工程学院 x-lab 博士研究生 jiaheng_peng@stu.ecnu.edu.cn
 
 张雨昂：中国地质大学（武汉） 地理与信息工程学院 地理信息系统国地联合工程实验室 博士研究生 zhangyuang@cug.edu.cn

@@ -1,3 +1,5 @@
+## “OpenRank杯”开源数字生态分析与应用创新赛 
+
 <img width="880" height="220" alt="image" src="https://github.com/user-attachments/assets/05d5d82d-8eac-4375-8965-751871233db2" />
 
 **参赛选手：** 彭佳恒 张雨昂 张雨欣

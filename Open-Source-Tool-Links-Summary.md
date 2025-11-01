@@ -1,17 +1,14 @@
 Open Source Tool Links Summary
 
-
 （1）Dify - LLM应用开发平台
 ‌项目地址‌：https://github.com/langgenius/dify
 ‌Star数‌：37.4k+
-‌近期更新‌：2025年10月20日
 开源的LLM应用开发平台，主要优势功能：
 ‌可视化编排‌：直观的Prompt IDE和工作流设计界面
 ‌RAG引擎‌：支持高质量的知识检索增强生成
 ‌Agent框架‌：可定义各种智能代理扩展功能
 ‌模型支持‌：集成数百种专有/开源大语言模型
-‌可观测性‌：提供应用监测和分析能力
-在医疗咨询、法律文书生成等垂直领域有广泛应用案例。‌
+‌可观测性‌：提供应用监测和分析能力‌
 
 （2）LLM-Universe - 大模型全流程开发教程
 ‌项目地址‌：https://github.com/datawhalechina/llm-universe

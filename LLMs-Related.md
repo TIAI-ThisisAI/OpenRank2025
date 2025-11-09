@@ -26,3 +26,8 @@ Open Source Tool Links Summary
 截至2025年10月已获得超15k星标，被亚马逊、英伟达、阿里云等企业采用。‌‌
 ‌技术特点‌：支持100+主流模型的全链路训练方法，包括LLaMA、Qwen、ChatGLM等系列，适配从32比特全参数到2比特QLoRA的多精度配置。‌‌
 链接：https://github.com/hiyouga/LLaMA-Factory
+
+‌（4）Text Generation WebUI
+‌简介‌： 一个功能极其丰富的Web界面，用于运行开源大语言模型。支持多种后端、模型加载方式、角色扮演、扩展插件等，是高级玩家和研究员的热门选择。
+‌应用场景‌： AI聊天、创意写作、复杂模型功能研究、LoRA模型训练。
+‌链接‌： https://github.com/oobabooga/text-generation-webui

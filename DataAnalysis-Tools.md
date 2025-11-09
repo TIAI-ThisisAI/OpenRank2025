@@ -19,8 +19,7 @@
 3. PowerBI
 ‌特点‌：微软开发的数据分析工具，集成Office生态
 ‌优势‌：
-智能功能如自动数据清理、预测分析
-实时数据更新能力
+智能功能如自动数据清理、预测分析、实时数据更新能力
 与Azure云服务深度集成
 ‌适用场景‌：企业级数据分析，特别是已使用微软技术栈的环境
 https://www.microsoft.com/en-us/power-platform/products/power-bi

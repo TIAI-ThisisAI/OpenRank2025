@@ -31,3 +31,8 @@ Open Source Tool Links Summary
 ‌简介‌： 一个功能极其丰富的Web界面，用于运行开源大语言模型。支持多种后端、模型加载方式、角色扮演、扩展插件等，是高级玩家和研究员的热门选择。
 ‌应用场景‌： AI聊天、创意写作、复杂模型功能研究、LoRA模型训练。
 ‌链接‌： https://github.com/oobabooga/text-generation-webui
+
+‌（5）Open WebUI
+‌简介‌： 专为Ollama设计的、功能强大的开源Web用户界面。它提供了类似ChatGPT的体验，支持多模型对话、RAG（检索增强生成）、文件上传、插件系统等。
+‌应用场景‌： 为本地Ollama部署一个美观易用的聊天前端，构建个人知识库问答系统。
+‌链接‌： https://github.com/open-webui/open-webui

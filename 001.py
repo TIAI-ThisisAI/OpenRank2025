@@ -4,11 +4,6 @@ import clickhouse_connect
 # 数据库连接配置
 # 你的ClickHouse连接信息
 CLIENT_CONFIG = {
-    'host': 'cc-2ze7189376o5m9759.public.clickhouse.ads.aliyuncs.com',
-    'port': 8123,
-    'user': 'xlab',
-    'password': 'Xlab2025!',
-    'database': 'opensource'
 }
 
 # Excel 文件名和列索引配置

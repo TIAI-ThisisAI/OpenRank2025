@@ -22,13 +22,14 @@
 
 本团队三个成员自从参加比赛开始就一直采取开源协作的方式，详情可见issue
 
-从讨论选题开始就在github上以issue的形式进行讨论，目前共计7个issue，一百余条Comments回复
+从讨论选题开始就在github上以issue的形式进行讨论，目前共计9个issue，一百余条Comments回复
 
 **(2) 开源协作 PR贡献**
 
 本项目完全以开源协作的方式进行代码迭代，以共计40余个PR的形式完成本项目的开发
 
 ## 作品题目
+**The Global Pulse of Code: A Framework for Evaluating the Globalization of Open Source Projects**
 
 ## 实现思路
 

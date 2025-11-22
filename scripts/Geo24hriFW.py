@@ -11,8 +11,6 @@ from typing import List, Dict, Any, Optional
 
 # --- 配置 ---
 GITHUB_API_BASE = "https://api.github.com"
-# !!! 替换为你的 GitHub Personal Access Token !!!
-# 拥有 repo 权限的 Token 可以显著提高 API 速率限制。
 GITHUB_TOKEN = "YOUR_GITHUB_PERSONAL_ACCESS_TOKEN" 
 
 # --- 数据结构定义 (优化后的目标结构) ---

@@ -1,285 +1,293 @@
 # -*- coding: utf-8 -*-
 
-import math
-import random
+import requests
 import json
-import argparse
+import time
 import sys
-from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta # 修复：新增 timedelta 导入
+import random
+import argparse
+from typing import List, Dict, Any, Optional
 
-def calculate_shannon_entropy(data: list) -> float:
-    if not data:
-        return 0.0
+# --- 配置 ---
+GITHUB_API_BASE = "https://api.github.com"
+GITHUB_TOKEN = "YOUR_GITHUB_PERSONAL_ACCESS_TOKEN" 
 
-    n = len(data)
-    counts = Counter(data)
-    
-    entropy = 0.0
-    for count in counts.values():
-        probability = count / n
-        if probability > 0:
-            entropy -= probability * math.log2(probability)
-            
-    return entropy
+# --- 数据结构定义 (优化后的目标结构) ---
+OptimizedCommitData = Dict[str, Any]
+CACHE_FILEPATH = "gh_contributor_location_cache.json"
 
-def calculate_24hri_raw(contribution_hours: list) -> float:
-    if not contribution_hours:
-        return 0.0
-    
-    n = len(contribution_hours)
-    counts = Counter(contribution_hours)
-    
-    probabilities = []
-    for hour in range(24):
-        probability = counts.get(hour, 0) / n
-        probabilities.append(probability)
-        
-    entropy = -sum(p * math.log2(p) for p in probabilities if p > 0)
-    
-    return entropy
+# --- 缓存管理 ---
 
-def calculate_geo_diversity_raw(contributor_locations: list) -> float:
-    return calculate_shannon_entropy(contributor_locations)
+def load_cache(filepath: str) -> Dict[str, str]:
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
 
-def get_openrank_simulated(project_name: str) -> float:
-    mock_rank = (hash(project_name) % 1000) / 50.0
-    return mock_rank
-
-class ProjectAnalyzer:
-    
-    MAX_24HRI_ENTROPY = math.log2(24)
-
-    def __init__(self, project_name: str):
-        self.project_name = project_name
-        self.commit_hours = []
-        self.locations = []
-        self.unique_locations = set()
-        self.total_contributions = 0
-
-    def load_contributions(self, contributions_list: list):
-        processed_hours = []
-        processed_locations = []
-        
-        for item in contributions_list:
-            try:
-                ts = datetime.fromisoformat(item.get("timestamp", "").replace("Z", "+00:00"))
-                processed_hours.append(ts.hour)
-            except (ValueError, TypeError):
-                pass
-            
-            location = item.get("location")
-            if location:
-                processed_locations.append(location)
-
-        self.commit_hours = processed_hours
-        self.locations = processed_locations
-        self.unique_locations = set(processed_locations)
-        self.total_contributions = len(contributions_list)
-        
-        if not self.commit_hours and not self.locations:
-            print(f"警告: 项目 {self.project_name} 加载了 0 条有效数据。")
-
-    def get_raw_24hri(self) -> float:
-        return calculate_24hri_raw(self.commit_hours)
-        
-    def get_normalized_24hri(self) -> float:
-        if not self.commit_hours:
-            return 0.0
-        return self.get_raw_24hri() / self.MAX_24HRI_ENTROPY
-
-    def get_raw_geo_diversity(self) -> float:
-        return calculate_geo_diversity_raw(self.locations)
-
-    def get_normalized_geo_diversity(self)D -> float:
-        if not self.locations or len(self.unique_locations) <= 1:
-            return 0.0
-        
-        max_geo_entropy = math.log2(len(self.unique_locations))
-        if max_geo_entropy == 0:
-            return 0.0
-        
-        return self.get_raw_geo_diversity() / max_geo_entropy
-
-    def get_combined_globalization_index(self, w_hri=0.6, w_geo=0.4) -> float:
-        norm_hri = self.get_normalized_24hri()
-        norm_geo = self.get_normalized_geo_diversity()
-        
-        return (norm_hri * w_hri) + (norm_geo * w_geo)
-
-    def get_full_report(self) -> dict:
-        raw_hri = self.get_raw_24hri()
-        raw_geo = self.get_raw_geo_diversity()
-        
-        return {
-            "project_name": self.project_name,
-            "total_contributions_analyzed": len(self.commit_hours),
-            "unique_locations_found": len(self.unique_locations),
-            "metrics": {
-                "24HRI (Raw)": raw_hri,
-                "24HRI (Normalized)": self.get_normalized_24hri(),
-                "GeoDiversity (Raw)": raw_geo,
-                "GeoDiversity (Normalized)": self.get_normalized_geo_diversity(),
-                "OpenRank (Simulated)": get_openrank_simulated(self.project_name),
-                "GlobalizationIndex (Combined)": self.get_combined_globalization_index()
-            },
-            "interpretation": {
-                "HRI_Max_Entropy": self.MAX_24HRI_ENTROPY,
-                "Geo_Max_Entropy": math.log2(len(self.unique_locations)) if self.unique_locations else 0
-            }
-        }
-
-def generate_mock_contributions(config: dict) -> list:
-    num_contributions = config["num_contributions"]
-    
-    hours_dist = config["hours_dist"]
-    center_hour, spread = hours_dist
-    
-    contributions = []
-    
-    location_weights = config["location_weights"]
-    locations = list(location_weights.keys())
-    weights = list(location_weights.values())
-    
-    for _ in range(num_contributions):
-        hour = int(random.gauss(center_hour, spread)) % 24
-        
-        minute = random.randint(0, 59)
-        second = random.randint(0, 59)
-        
-        day = random.randint(1, 28)
-        month = 10
-        year = 2023
-        
-        try:
-            timestamp_str = datetime(year, month, day, hour, minute, second).isoformat() + "Z"
-        except ValueError:
-            timestamp_str = datetime(year, month, 1, hour, minute, second).isoformat() + "Z"
-
-        
-        location = random.choices(locations, weights=weights, k=1)[0]
-        
-        contributions.append({
-            "timestamp": timestamp_str,
-            "location": location
-        })
-        
-    return contributions
-
-def create_mock_data_file(filepath: str):
-    print(f"正在生成模拟数据文件: {filepath} ...")
-    
-    project_configs = [
-        {
-            "name": "Project-Global-Relay",
-            "num_contributions": 1000,
-            "hours_dist": (12, 12),
-            "location_weights": {"USA": 1, "CHN": 1, "DEU": 1, "IND": 1, "BRA": 1, "NGA": 1}
-        },
-        {
-            "name": "Project-US-Centric",
-            "num_contributions": 500,
-            "hours_dist": (18, 3),
-            "location_weights": {"USA": 10, "CAN": 2, "GBR": 1}
-        },
-        {
-            "name": "Project-Asia-Centric",
-            "num_contributions": 500,
-            "hours_dist": (4, 3),
-            "location_weights": {"CHN": 10, "JPN": 3, "KOR": 2, "SGP": 1}
-        }
-    ]
-    
-    output_data = {}
-    for config in project_configs:
-        print(f"  - 生成项目: {config['name']}")
-        output_data[config['name']] = generate_mock_contributions(config)
-        
+def save_cache(cache_data: Dict[str, str], filepath: str):
     try:
         with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(output_data, f, indent=2, ensure_ascii=False)
-        print(f"成功保存模拟数据到: {filepath}")
+            json.dump(cache_data, f, indent=2, ensure_ascii=False)
     except IOError as e:
-        print(f"错误：无法写入文件 {filepath}. {e}", file=sys.stderr)
+        print(f"警告: 无法保存缓存文件 {filepath}. {e}", file=sys.stderr)
+
+# --- 辅助函数：模拟 GitHub API 返回（用于演示） ---
+def fetch_github_commits_mock(owner: str, repo: str) -> List[Dict[str, Any]]:
+    
+    num_commits = random.randint(50, 150)
+    mock_data = []
+    
+    
+    mock_users = {
+        "user_a": {"location": "San Francisco, CA"},
+        "user_b": {"location": "Beijing, China"},
+        "user_c": {"location": "Frankfurt"},
+        "user_d": {"location": "Planet Mars"}, 
+        "user_e": {"location": "India"}
+    }
+    user_logins = list(mock_users.keys())
+
+    for i in range(num_commits):
+        login = random.choice(user_logins)
+        raw_location = mock_users[login]["location"]
+        
+        
+        ts = int(time.time()) - random.randint(86400, 86400 * 30)
+        
+        mock_data.append({
+            "sha": f"mocksha{i}",
+            "author": {"login": login},
+            "commit": {
+                "author": {
+                    "date": datetime.fromtimestamp(ts).isoformat() + "Z"
+                },
+                "message": f"feat: add feature {i}",
+            },
+            
+            "raw_location": raw_location 
+        })
+        
+    return mock_data
+
+def fetch_contributor_location_real(contributor_id: str, session: requests.Session, cache: Dict[str, str]) -> str:
+    
+    if contributor_id in cache:
+        return cache[contributor_id] 
+    
+    url = f"{GITHUB_API_BASE}/users/{contributor_id}"
+    try:
+        response = session.get(url)
+        response.raise_for_status()
+        user_data = response.json()
+        location = user_data.get('location', '') if user_data.get('location') else ''
+        
+        cache[contributor_id] = location # 更新缓存
+        return location
+    except requests.exceptions.RequestException as e:
+        print(f"警告: 获取贡献者 {contributor_id} 位置失败: {e}", file=sys.stderr)
+        return ''
+
+# --- 核心转换逻辑 ---
+
+def collect_project_data(
+    project_full_name: str, 
+    session: requests.Session,
+    is_mock: bool = True,
+    contributor_cache: Optional[Dict[str, str]] = None
+) -> List[OptimizedCommitData]:
+    
+    
+    parts = project_full_name.split('/')
+    if len(parts) != 2:
+        print(f"错误: 项目名称格式错误 '{project_full_name}'", file=sys.stderr)
+        return []
+        
+    owner, repo = parts
+    all_raw_commits = []
+
+    # 1. 获取提交数据（支持分页）
+    if is_mock:
+        all_raw_commits = fetch_github_commits_mock(owner, repo)
+    else:
+        # --- 真实 API 调用 (实现分页处理) ---
+        url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/commits"
+        params = {
+            'per_page': 100,
+            'since': (datetime.now() - timedelta(days=90)).isoformat() + 'Z' 
+        }
+        
+        print(f"-> 正在从 {project_full_name} 获取提交数据（最近 90 天）...")
+        
+        while url:
+            try:
+                response = session.get(url, params=params if url == f"{GITHUB_API_BASE}/repos/{owner}/{repo}/commits" else None)
+                response.raise_for_status()
+                raw_commits = response.json()
+                
+                if not raw_commits:
+                    break
+                    
+                all_raw_commits.extend(raw_commits)
+                
+                # 处理分页链接
+                if 'link' in response.headers:
+                    links = response.headers['link']
+                    next_url = None
+                    for link in links.split(','):
+                        if 'rel="next"' in link:
+                            next_url = link.split(';')[0].strip('<> ')
+                            break
+                    url = next_url
+                else:
+                    url = None
+                
+                if url:
+                    # 暂停以避免速率限制
+                    time.sleep(0.5) 
+                    params = None # 下一页的 URL 已包含所有参数，无需重复发送 params
+                
+            except requests.exceptions.RequestException as e:
+                print(f"警告: 无法获取 {project_full_name} 提交数据（分页中断）: {e}", file=sys.stderr)
+                url = None
+    
+    if not all_raw_commits:
+        return []
+
+    print(f"-> 成功获取 {len(all_raw_commits)} 条提交记录。")
+
+    # 2. 收集所有独特的贡献者 ID
+    contributor_locations = {}
+    unique_contributors = set()
+    for commit in all_raw_commits:
+        # 确保作者信息有效
+        author_login = commit.get('author', {}).get('login')
+        if author_login:
+            unique_contributors.add(author_login)
+
+    # 3. 获取每个独特贡献者的位置 (使用缓存和会话)
+    print(f"-> 正在查询 {len(unique_contributors)} 个独特贡献者的位置（使用缓存）...")
+    
+    cache = contributor_cache if contributor_cache is not None else {}
+    
+    for user_id in unique_contributors:
+        if is_mock:
+            
+            mock_loc = next((c.get('raw_location') for c in all_raw_commits if c.get('author', {}).get('login') == user_id), '')
+            contributor_locations[user_id] = mock_loc if mock_loc else ''
+        else:
+            # 真实模式：调用带缓存的函数
+            location = fetch_contributor_location_real(user_id, session, cache)
+            contributor_locations[user_id] = location
+    
+    # 4. 转换数据结构
+    optimized_data: List[OptimizedCommitData] = []
+    for commit in all_raw_commits:
+        author_data = commit.get('author', {})
+        commit_data = commit.get('commit', {})
+        
+        
+        contributor_id = author_data.get('login')
+        timestamp_str = commit_data.get('author', {}).get('date')
+        
+        if contributor_id and timestamp_str:
+            try:
+                
+                dt_obj = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                timestamp_unix = int(dt_obj.timestamp())
+            except ValueError:
+                timestamp_unix = 0 
+                
+            raw_location = contributor_locations.get(contributor_id, '')
+            
+            optimized_data.append({
+                "timestamp_unix": timestamp_unix,
+                "raw_location": raw_location,
+                
+                "location_iso3": "NEED_LLM_CLEANING", 
+                "contributor_id": contributor_id
+            })
+            
+    return optimized_data
+
+# --- 主程序和命令行界面 ---
 
 def main():
     parser = argparse.ArgumentParser(
-        description="开源项目全球化评估框架",
-        epilog="示例用法:\n"
-               "1. 生成模拟数据: python %(prog)s --generate-mock mock_data.json\n"
-               "2. 分析所有项目:   python %(prog)s --analyze mock_data.json\n"
-               "3. 分析单个项目: python %(prog)s --analyze mock_data.json --project Project-Global-Relay",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        description="GitHub 开源项目提交数据收集与结构转换工具。",
+        formatter_class=argparse.RawTextHelpFormatter
     )
     
     parser.add_argument(
-        "--generate-mock",
-        metavar="FILEPATH",
-        help="生成一个模拟的 JSON 数据文件并保存到指定路径。"
+        "--projects",
+        required=True,
+        nargs='+',
+        help="要收集的项目列表，以空格分隔。格式为 'owner/repo'，例如: 'google/gtest tensorflow/tensorflow'"
     )
     
     parser.add_argument(
-        "--analyze",
-        metavar="FILEPATH",
-        help="加载并分析指定的 JSON 数据文件。"
+        "--output",
+        required=True,
+        help="输出 JSON 文件路径。转换后的数据将保存到此文件。"
     )
+    
     parser.add_argument(
-        "-p", "--project",
-        metavar="PROJECT_NAME",
-        help="（可选）只分析 JSON 文件中指定的单个项目名称。"
+        "--mock",
+        action='store_true',
+        help="使用模拟数据模式（推荐用于测试），跳过真实的 GitHub API 调用。"
     )
     
     args = parser.parse_args()
+
+    # 1. 设置 Requests Session 和加载缓存
+    session = requests.Session()
+    contributor_cache = load_cache(CACHE_FILEPATH)
     
-    if args.generate_mock:
-        create_mock_data_file(args.generate_mock)
+    if not args.mock and GITHUB_TOKEN == "YOUR_GITHUB_PERSONAL_ACCESS_TOKEN":
+         print("错误: 请设置 GITHUB_TOKEN 以进行真实的 API 调用。", file=sys.stderr)
+         sys.exit(1)
+         
+    if not args.mock:
+        session.headers.update({
+            'Authorization': f'token {GITHUB_TOKEN}',
+            'Accept': 'application/vnd.github.v3+json'
+        })
+        print("注意: 正在使用真实 API 模式。请注意 GitHub 的速率限制。")
         
-    elif args.analyze:
+    all_projects_data: Dict[str, List[OptimizedCommitData]] = {}
+    
+    # 2. 遍历项目并收集数据
+    print(f"\n--- 开始收集 {len(args.projects)} 个项目的数据 ({'模拟' if args.mock else '真实'} 模式) ---")
+
+    for project in args.projects:
+        print(f"\n[项目] {project}")
+        project_data = collect_project_data(project, session, is_mock=args.mock, contributor_cache=contributor_cache)
+        
+        if project_data:
+            all_projects_data[project] = project_data
+        
+        
+        if not args.mock and len(args.projects) > 1:
+            time.sleep(1) 
+
+    # 3. 保存到文件并保存缓存
+    if all_projects_data:
         try:
-            with open(args.analyze, 'r', encoding='utf-8') as f:
-                all_project_data = json.load(f)
-        except FileNotFoundError:
-            print(f"错误：文件未找到 {args.analyze}", file=sys.stderr)
+            with open(args.output, 'w', encoding='utf-8') as f:
+                json.dump(all_projects_data, f, indent=2, ensure_ascii=False)
+            print(f"\n--- 成功完成收集。数据已保存到 {args.output} ---")
+            
+            if not args.mock:
+                save_cache(contributor_cache, CACHE_FILEPATH)
+                print(f"贡献者位置缓存已更新到 {CACHE_FILEPATH}")
+                
+            print("下一步：使用 llm_geo_cleaner.py 清洗 raw_location 字段并填充 location_iso3。")
+        except IOError as e:
+            print(f"错误：无法写入输出文件 {args.output}. {e}", file=sys.stderr)
             sys.exit(1)
-        except json.JSONDecodeError:
-            print(f"错误：文件 {args.analyze} 不是有效的 JSON 格式。", file=sys.stderr)
-            sys.exit(1)
-        
-        projects_to_analyze = {}
-        if args.project:
-            if args.project not in all_project_data:
-                print(f"错误：项目 '{args.project}' 在文件 {args.analyze} 中未找到。", file=sys.stderr)
-                print(f"可用项目: {list(all_project_data.keys())}", file=sys.stderr)
-                sys.exit(1)
-            projects_to_analyze = {args.project: all_project_data[args.project]}
-        else:
-            projects_to_analyze = all_project_data
-            
-        print(f"--- 正在分析 {len(projects_to_analyze)} 个项目于 {args.analyze} ---")
-        print("=" * 50)
-
-        for project_name, contributions in projects_to_analyze.items():
-            analyzer = ProjectAnalyzer(project_name)
-            analyzer.load_contributions(contributions)
-            
-            report = analyzer.get_full_report()
-            
-            print(f"\n项目: {report['project_name']}")
-            print(f"  总贡献数: {report['total_contributions_analyzed']}")
-            print(f"  独立位置数: {report['unique_locations_found']}")
-            print("-" * 30)
-            
-            metrics = report['metrics']
-            print(f"  [综合指数] 全球化综合指数: {metrics['GlobalizationIndex (Combined)']:.4f}")
-            print(f"  [指标 1] 24HRI (归一化): {metrics['24HRI (Normalized)']:.4f}")
-            print(f"  [指标 2] 地理多样性 (归一化): {metrics['GeoDiversity (Normalized)']:.4f}")
-            print(f"  [指标 3] OpenRank (模拟值): {metrics['OpenRank (Simulated)']:.4f}")
-            print(f"  (原始 24HRI 熵: {metrics['24HRI (Raw)']:.4f} / 最大 {report['interpretation']['HRI_Max_Entropy']:.4f})")
-            print(f"  (原始地理熵: {metrics['GeoDiversity (Raw)']:.4f} / 最大 {report['interpretation']['Geo_Max_Entropy']:.4f})")
-            print("=" * 50)
-
     else:
-        parser.print_help()
+        print("\n未收集到任何有效数据。", file=sys.stderr)
 
 if __name__ == "__main__":
     main()

@@ -1,30 +1,30 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, LineChart, Line, AreaChart, Area
+  PieChart, Pie, Cell, Legend, LineChart, Line, AreaChart, Area,
+  Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 } from 'recharts';
-import { Globe, Clock, Tally3, TrendingUp, HelpCircle, Sparkles, Activity, Calendar, Map as MapIcon } from 'lucide-react';
+import { Globe, Clock, Tally3, TrendingUp, HelpCircle, Sparkles, Activity, Calendar, Map as MapIcon, Award, Users, Target } from 'lucide-react';
 
 // --- GEMINI API 配置 ---
 const API_KEY = ""; // 请替换为您的 Gemini API 密钥
 const API_URL_GEMINI = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent";
 
-// --- MOCK DATA SIMULATION (增强版) ---
+// --- MOCK DATA SIMULATION (增强版 v2) ---
 const MOCK_CLEANED_DATA = {
   "Project-A": {
     commits: [
-        // 模拟更丰富的提交数据，包含 UTC 时间戳和 ISO3 国家代码
         ...Array(200).fill(null).map((_, i) => {
-            const baseTime = 1732278000; // 某个基准时间
-            const randomOffset = Math.floor(Math.random() * 86400 * 30); // 30天内
+            const baseTime = 1732278000;
+            const randomOffset = Math.floor(Math.random() * 86400 * 30);
             const locationPool = ["USA", "CHN", "DEU", "IND", "JPN", "GBR", "BRA", "AUS", "CAN", "FRA"];
-            // 模拟不同时区的权重，让 Project A 看起来比较全球化
             const hour = (new Date((baseTime - randomOffset) * 1000).getUTCHours());
             const location = locationPool[hour % locationPool.length]; 
             return {
                 timestamp_unix: baseTime - randomOffset,
                 location_iso3: location,
-                contributor_id: `u${Math.floor(Math.random() * 50)}`
+                contributor_id: `u${Math.floor(Math.random() * 20)}`,
+                contributor_name: `User-${Math.floor(Math.random() * 20)}` // Added names
             };
         })
     ],
@@ -35,6 +35,22 @@ const MOCK_CLEANED_DATA = {
         { month: '9月', score: 0.65, commits: 160 },
         { month: '10月', score: 0.72, commits: 190 },
         { month: '11月', score: 0.78, commits: 200 },
+    ],
+    regionalHistory: [
+        { month: '6月', 'North America': 60, 'Asia': 20, 'Europe': 30, 'Others': 10 },
+        { month: '7月', 'North America': 65, 'Asia': 35, 'Europe': 35, 'Others': 10 },
+        { month: '8月', 'North America': 50, 'Asia': 40, 'Europe': 30, 'Others': 10 },
+        { month: '9月', 'North America': 55, 'Asia': 55, 'Europe': 40, 'Others': 10 },
+        { month: '10月', 'North America': 60, 'Asia': 70, 'Europe': 45, 'Others': 15 },
+        { month: '11月', 'North America': 60, 'Asia': 80, 'Europe': 50, 'Others': 10 },
+    ],
+    radarData: [
+        { subject: '时区覆盖', A: 120, fullMark: 150 },
+        { subject: '地域多元性', A: 98, fullMark: 150 },
+        { subject: '贡献连续性', A: 86, fullMark: 150 },
+        { subject: '社区活跃度', A: 99, fullMark: 150 },
+        { subject: '新人留存', A: 85, fullMark: 150 },
+        { subject: '非英语母语', A: 65, fullMark: 150 },
     ]
   },
   "Project-B": {
@@ -42,11 +58,11 @@ const MOCK_CLEANED_DATA = {
          ...Array(150).fill(null).map((_, i) => {
             const baseTime = 1732278000;
             const randomOffset = Math.floor(Math.random() * 86400 * 30);
-            // Project B 集中在北美
             return {
                 timestamp_unix: baseTime - randomOffset,
                 location_iso3: Math.random() > 0.8 ? "GBR" : "USA",
-                contributor_id: `b${Math.floor(Math.random() * 20)}`
+                contributor_id: `b${Math.floor(Math.random() * 10)}`,
+                contributor_name: `Dev-${Math.floor(Math.random() * 10)}`
             };
         })
     ],
@@ -57,19 +73,34 @@ const MOCK_CLEANED_DATA = {
         { month: '9月', score: 0.43, commits: 100 },
         { month: '10月', score: 0.45, commits: 110 },
         { month: '11月', score: 0.44, commits: 150 },
+    ],
+    regionalHistory: [
+        { month: '6月', 'North America': 70, 'Asia': 5, 'Europe': 5, 'Others': 0 },
+        { month: '7月', 'North America': 80, 'Asia': 5, 'Europe': 5, 'Others': 0 },
+        { month: '8月', 'North America': 75, 'Asia': 5, 'Europe': 5, 'Others': 0 },
+        { month: '9月', 'North America': 90, 'Asia': 5, 'Europe': 5, 'Others': 0 },
+        { month: '10月', 'North America': 95, 'Asia': 10, 'Europe': 5, 'Others': 0 },
+        { month: '11月', 'North America': 130, 'Asia': 10, 'Europe': 10, 'Others': 0 },
+    ],
+    radarData: [
+        { subject: '时区覆盖', A: 60, fullMark: 150 },
+        { subject: '地域多元性', A: 40, fullMark: 150 },
+        { subject: '贡献连续性', A: 110, fullMark: 150 },
+        { subject: '社区活跃度', A: 90, fullMark: 150 },
+        { subject: '新人留存', A: 70, fullMark: 150 },
+        { subject: '非英语母语', A: 20, fullMark: 150 },
     ]
   }
 };
 
 const PROJECT_OPTIONS = Object.keys(MOCK_CLEANED_DATA);
 const COLORS = ['#06b6d4', '#f59e0b', '#ec4899', '#8b5cf6', '#10b981', '#ef4444'];
+const RADAR_COLOR = '#06b6d4';
 
-// --- 辅助组件：自定义热力图 ---
+// --- 辅助组件 ---
 const ActivityHeatmap = ({ data }) => {
     const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
     const hours = Array.from({ length: 24 }, (_, i) => i);
-
-    // data 应该是一个 7x24 的二维数组或对象，存储提交数
     const getIntensity = (count) => {
         if (count === 0) return 'bg-gray-800';
         if (count < 2) return 'bg-cyan-900/40';
@@ -79,51 +110,41 @@ const ActivityHeatmap = ({ data }) => {
     };
 
     return (
-        <div className="flex flex-col h-full w-full overflow-x-auto">
+        <div className="flex flex-col h-full w-full overflow-x-auto select-none">
              <div className="flex mb-2">
-                <div className="w-10"></div> {/* 占位符 */}
-                <div className="flex-1 flex justify-between text-xs text-gray-500 px-1">
-                    {hours.filter(h => h % 3 === 0).map(h => (
-                        <span key={h}>{h}:00</span>
-                    ))}
+                <div className="w-8"></div>
+                <div className="flex-1 flex justify-between text-[10px] text-gray-500 px-1 font-mono">
+                    {hours.filter(h => h % 3 === 0).map(h => <span key={h}>{h}H</span>)}
                 </div>
              </div>
             {days.map((day, dayIdx) => (
-                <div key={day} className="flex items-center mb-1">
-                    <span className="w-10 text-xs text-gray-400 text-right pr-2">{day}</span>
-                    <div className="flex-1 grid grid-cols-24 gap-1">
+                <div key={day} className="flex items-center mb-1 group">
+                    <span className="w-8 text-[10px] text-gray-500 text-right pr-2 group-hover:text-cyan-400 transition-colors">{day}</span>
+                    <div className="flex-1 grid grid-cols-24 gap-[2px]">
                         {hours.map(hour => {
                             const count = data[dayIdx]?.[hour] || 0;
                             return (
                                 <div 
                                     key={`${dayIdx}-${hour}`}
-                                    className={`h-6 rounded-sm transition-colors hover:border hover:border-white ${getIntensity(count)}`}
-                                    title={`${day} ${hour}:00 - ${count} 次提交`}
+                                    className={`h-5 rounded-[2px] transition-all hover:ring-1 hover:ring-white ${getIntensity(count)}`}
+                                    title={`${day} ${hour}:00 UTC - ${count} 次提交`}
                                 />
                             );
                         })}
                     </div>
                 </div>
             ))}
-            <div className="mt-4 flex items-center justify-end text-xs text-gray-400 gap-2">
-                <span>低</span>
-                <div className="w-3 h-3 bg-gray-800 rounded-sm"></div>
-                <div className="w-3 h-3 bg-cyan-900/40 rounded-sm"></div>
-                <div className="w-3 h-3 bg-cyan-700/60 rounded-sm"></div>
-                <div className="w-3 h-3 bg-cyan-500/80 rounded-sm"></div>
-                <div className="w-3 h-3 bg-cyan-400 rounded-sm"></div>
-                <span>高</span>
-            </div>
         </div>
     );
 };
 
-// --- 核心计算逻辑 ---
-
+// --- 核心数据处理 ---
 const useDataProcessor = (selectedProject) => {
   const projectData = MOCK_CLEANED_DATA[selectedProject];
   const commits = projectData?.commits || [];
   const history = projectData?.history || [];
+  const regionalHistory = projectData?.regionalHistory || [];
+  const radarData = projectData?.radarData || [];
 
   return useMemo(() => {
     if (!commits.length) {
@@ -131,21 +152,38 @@ const useDataProcessor = (selectedProject) => {
         hriData: [], geoData: { countryData: [], diversityScore: 0 },
         heatmapData: [],
         globalScore: 0, openRank: 0, totalCommits: 0, totalContributors: 0,
-        history, rawCommits: []
+        history, regionalHistory, radarData, rawCommits: [], topContributors: []
       };
     }
 
-    // 1. 24HRI & Heatmap Data
+    // 1. 24HRI & Heatmap
     const hourlyCounts = Array(24).fill(0);
     const heatmapGrid = Array(7).fill(null).map(() => Array(24).fill(0));
+    // 2. Geo & Contributors
+    const countryCounts = {};
+    const contributorStats = {};
 
     commits.forEach(c => {
       const date = new Date(c.timestamp_unix * 1000);
       const utcHour = date.getUTCHours();
-      const day = date.getUTCDay(); // 0 (Sunday) - 6 (Saturday)
+      const day = date.getUTCDay();
       
       hourlyCounts[utcHour]++;
       heatmapGrid[day][utcHour]++;
+
+      // Geo
+      countryCounts[c.location_iso3] = (countryCounts[c.location_iso3] || 0) + 1;
+
+      // Contributors
+      if (!contributorStats[c.contributor_id]) {
+          contributorStats[c.contributor_id] = { 
+              id: c.contributor_id, 
+              name: c.contributor_name || c.contributor_id,
+              count: 0,
+              location: c.location_iso3 
+          };
+      }
+      contributorStats[c.contributor_id].count++;
     });
 
     const hriData = hourlyCounts.map((count, hour) => ({
@@ -153,17 +191,15 @@ const useDataProcessor = (selectedProject) => {
       commits: count,
     }));
 
-    // 2. Geo Data
-    const countryCounts = commits.reduce((acc, c) => {
-      acc[c.location_iso3] = (acc[c.location_iso3] || 0) + 1;
-      return acc;
-    }, {});
-
     const countryData = Object.entries(countryCounts)
       .sort(([, a], [, b]) => b - a)
       .map(([name, value]) => ({ name, value }));
 
-    // 3. Metrics
+    const topContributors = Object.values(contributorStats)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 8); // Top 8
+
+    // Metrics
     const numUniqueCountries = Object.keys(countryCounts).length;
     const diversityScore = numUniqueCountries > 0
       ? parseFloat((Math.min(1, Math.log(numUniqueCountries) / Math.log(10)) * 0.9 + Math.random() * 0.1).toFixed(2))
@@ -174,7 +210,7 @@ const useDataProcessor = (selectedProject) => {
     const globalScore = parseFloat(((hriScore * 0.6) + (diversityScore * 0.4)).toFixed(2));
     const openRank = parseFloat((1.5 + Math.random() * 0.5 - (1.5 * (1 - globalScore))).toFixed(2));
     const totalContributors = new Set(commits.map(c => c.contributor_id)).size;
-    const topCountries = countryData.slice(0, 5).map(c => `${c.name} (${c.value})`).join(', ');
+    const topCountriesStr = countryData.slice(0, 5).map(c => `${c.name} (${c.value})`).join(', ');
 
     return {
       hriData, 
@@ -182,14 +218,15 @@ const useDataProcessor = (selectedProject) => {
       heatmapData: heatmapGrid,
       globalScore, openRank, totalCommits: commits.length, totalContributors,
       rawCommits: commits,
-      history,
+      history, regionalHistory, radarData,
       hriCoverage: parseFloat((hriCoverage * 100).toFixed(0)),
-      topCountries,
+      topCountriesStr,
+      topContributors
     };
-  }, [selectedProject, commits, history]);
+  }, [selectedProject, commits, history, regionalHistory, radarData]);
 };
 
-// --- UI 组件 ---
+// --- UI 组件库 ---
 
 const InfoTooltip = ({ content }) => (
   <span className="ml-1 text-gray-500 hover:text-cyan-400 cursor-pointer relative group inline-block align-middle">
@@ -203,77 +240,92 @@ const InfoTooltip = ({ content }) => (
 );
 
 const MetricCard = ({ title, value, icon: Icon, unit = '', color = 'text-cyan-400', subValue, info }) => (
-  <div className="bg-gray-800/50 backdrop-blur-sm p-6 rounded-2xl shadow-lg border border-gray-700/50 hover:border-cyan-500/30 transition-all group">
+  <div className="bg-gray-800/40 backdrop-blur-md p-6 rounded-2xl border border-gray-700/50 hover:border-cyan-500/30 hover:bg-gray-800/60 transition-all duration-300 group">
     <div className="flex items-center justify-between mb-4">
-      <h3 className="text-sm font-medium text-gray-400 flex items-center">
+      <h3 className="text-sm font-medium text-gray-400 flex items-center gap-2">
         {title} {info && <InfoTooltip content={info} />}
       </h3>
-      <div className={`p-2 rounded-lg bg-gray-700/50 group-hover:bg-gray-700 transition-colors ${color}`}>
-        <Icon size={20} />
+      <div className={`p-2.5 rounded-xl bg-gray-800 border border-gray-700 group-hover:border-${color.split('-')[1]}-500/50 transition-colors ${color}`}>
+        <Icon size={18} />
       </div>
     </div>
-    <div className="flex items-baseline gap-2">
-      <p className={`text-3xl font-bold text-gray-100`}>{value}{unit}</p>
-      {subValue && <p className="text-xs text-gray-500">{subValue}</p>}
+    <div className="flex flex-col gap-1">
+      <p className={`text-3xl font-bold text-gray-100 tracking-tight`}>{value}<span className="text-lg text-gray-500 ml-1 font-normal">{unit}</span></p>
+      {subValue && <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">{subValue}</p>}
     </div>
   </div>
 );
 
-const SectionHeader = ({ title, icon: Icon, subtitle }) => (
-    <div className="mb-6 flex items-start flex-col">
-        <h2 className="text-xl font-bold text-gray-100 flex items-center gap-2">
-            <Icon size={22} className="text-cyan-400" />
-            {title}
-        </h2>
-        {subtitle && <p className="text-sm text-gray-500 mt-1 ml-7">{subtitle}</p>}
+const ChartCard = ({ title, icon: Icon, children, className, subtitle }) => (
+    <div className={`bg-gray-800 rounded-2xl border border-gray-700 p-6 shadow-xl flex flex-col ${className}`}>
+        <div className="mb-6 flex items-start justify-between">
+            <div>
+                <h3 className="text-lg font-bold text-gray-100 flex items-center gap-2">
+                    <Icon size={20} className="text-cyan-400" />
+                    {title}
+                </h3>
+                {subtitle && <p className="text-xs text-gray-500 mt-1 ml-7">{subtitle}</p>}
+            </div>
+            {/* Optional Actions */}
+        </div>
+        <div className="flex-1 w-full min-h-0 relative">
+            {children}
+        </div>
     </div>
 );
 
 // --- 洞察生成器 ---
 const InsightGenerator = ({ data, selectedProject, onGenerate, loading, insightText }) => (
-  <div className="relative overflow-hidden bg-gradient-to-br from-gray-800 to-gray-900 p-6 lg:p-8 rounded-2xl shadow-xl border border-gray-700/50">
-    <div className="absolute top-0 right-0 p-3 opacity-10">
-        <Sparkles size={120} />
-    </div>
-    
-    <div className="relative z-10">
-        <SectionHeader title="AI 全球化洞察顾问" icon={Sparkles} subtitle="基于 Gemini 大模型，深度分析项目数据并提供改进策略。" />
-
-        <div className="flex flex-col md:flex-row gap-6">
-            <div className="flex-shrink-0">
+  <div className="relative overflow-hidden bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 p-1 rounded-2xl shadow-2xl">
+    <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 via-blue-500/20 to-purple-500/20 opacity-50 blur-xl"></div>
+    <div className="relative bg-[#0F1623] rounded-xl p-6 lg:p-8">
+        <div className="flex flex-col lg:flex-row gap-8 items-start">
+            <div className="lg:w-1/3 space-y-6">
+                <div>
+                    <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                        <Sparkles className="text-yellow-400 fill-yellow-400" size={24} />
+                        AI 智能顾问
+                    </h2>
+                    <p className="text-gray-400 mt-2 text-sm leading-relaxed">
+                        基于 Gemini 大模型引擎，深度解析上方图表中的复杂数据模式。获取针对性的全球化运营策略与改进建议。
+                    </p>
+                </div>
+                
                 <button
                     onClick={onGenerate}
                     disabled={loading || !API_KEY}
-                    className={`w-full md:w-auto flex items-center justify-center px-6 py-3 text-white font-medium rounded-xl shadow-lg transition-all transform hover:scale-105
+                    className={`w-full group relative flex items-center justify-center px-6 py-4 text-white font-bold rounded-xl shadow-lg transition-all overflow-hidden
                                 ${loading 
-                                    ? 'bg-gray-700 cursor-not-allowed' 
-                                    : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500'}`}
+                                    ? 'bg-gray-800 cursor-not-allowed' 
+                                    : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:shadow-cyan-500/25'}`}
                 >
+                    <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
                     {loading ? (
                         <>
-                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                            正在分析数据...
+                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-white/30 border-t-white mr-3"></div>
+                            正在深度思考...
                         </>
                     ) : (
                         <>
-                            <Activity size={18} className="mr-2" />
-                            生成 {selectedProject} 分析报告
+                            <Activity size={20} className="mr-2" />
+                            生成 {selectedProject} 深度诊断报告
                         </>
                     )}
                 </button>
-                {!API_KEY && <p className="mt-3 text-xs text-red-400 max-w-xs">⚠️ 未检测到 API Key，演示模式下无法生成真实报告。</p>}
+                {!API_KEY && <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 flex items-center gap-2"><Target size={14}/> 提示：请配置 API Key 启用此功能</div>}
             </div>
 
-            <div className="flex-grow min-h-[120px] bg-gray-800/50 rounded-xl border border-gray-700/50 p-5">
+            <div className="lg:w-2/3 min-h-[160px] bg-gray-900/50 rounded-xl border border-gray-800 p-6 relative">
                 {insightText ? (
                     <div className="prose prose-invert prose-sm max-w-none">
-                        <div className="whitespace-pre-wrap leading-relaxed text-gray-300">
+                        <div className="whitespace-pre-wrap leading-relaxed text-gray-300 font-sans">
                              {insightText}
                         </div>
                     </div>
                 ) : (
-                    <div className="h-full flex items-center justify-center text-gray-500 text-sm italic">
-                        点击左侧按钮，AI 将为您解读上方图表中的数据模式...
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-600 text-sm">
+                        <Sparkles size={48} className="mb-4 opacity-20" />
+                        <p>点击左侧按钮，AI 将为您解读数据...</p>
                     </div>
                 )}
             </div>
@@ -282,8 +334,7 @@ const InsightGenerator = ({ data, selectedProject, onGenerate, loading, insightT
   </div>
 );
 
-// --- 主界面 ---
-
+// --- 主应用 ---
 const App = () => {
   const [selectedProject, setSelectedProject] = useState(PROJECT_OPTIONS[0]);
   const [loading, setLoading] = useState(true);
@@ -295,7 +346,7 @@ const App = () => {
   useEffect(() => {
     setLoading(true);
     setInsightText("");
-    const timer = setTimeout(() => setLoading(false), 600);
+    const timer = setTimeout(() => setLoading(false), 800);
     return () => clearTimeout(timer);
   }, [selectedProject]);
   
@@ -307,13 +358,15 @@ const App = () => {
     setInsightLoading(true);
     setInsightText("");
     
-    // 构建 Prompt
+    // 构建丰富的 Prompt
     const metricsSummary = `
-      项目: ${selectedProject} | 综合得分: ${data.globalScore} | 24HRI覆盖: ${data.hriCoverage}% | Geo熵值: ${data.geoData.diversityScore}
-      历史趋势: ${data.history.map(h => `${h.month}(${h.score})`).join(', ')}
-      主要贡献地: ${data.topCountries}
+      项目: ${selectedProject}
+      [核心指标] 综合得分:${data.globalScore}, 24HRI:${data.hriCoverage}%, Geo熵:${data.geoData.diversityScore}
+      [五维雷达] ${data.radarData.map(r => `${r.subject}:${r.A}`).join(', ')}
+      [区域增长] 最近一个月北美占比高吗？请根据图表推断。
+      [贡献者] 核心贡献者有${data.topContributors.length}位。
     `;
-    const systemPrompt = "你是一位开源社区治理专家。请分析以下项目数据，简要指出其全球化协作的现状、潜在风险（如时区偏差），并给出2条具体的运营建议。使用中文回复。";
+    const systemPrompt = "你是一位资深的开源社区运营总监。请根据提供的多维数据，写一份简短精悍的'全球化健康度诊断书'。包含：1. 核心优势（如时区覆盖是否良好）。2. 警示信号（如是否存在区域衰退）。3. 下一步行动建议。语气专业、犀利。";
     
     try {
         const response = await fetch(`${API_URL_GEMINI}?key=${API_KEY}`, {
@@ -334,199 +387,193 @@ const App = () => {
   
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#0B1120] text-cyan-500">
-        <div className="relative">
-            <div className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-20"></div>
-            <Globe size={48} className="animate-pulse relative z-10" />
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#0B1120] text-cyan-500 font-sans">
+        <div className="relative w-24 h-24">
+            <div className="absolute inset-0 border-t-4 border-cyan-500 rounded-full animate-spin"></div>
+            <div className="absolute inset-3 border-t-4 border-blue-500 rounded-full animate-spin animation-delay-150"></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+                <Globe size={32} className="text-gray-100 animate-pulse" />
+            </div>
         </div>
-        <p className="mt-4 text-sm font-medium tracking-wider text-gray-400">LOADING DATA STREAMS...</p>
+        <p className="mt-6 text-sm font-medium tracking-[0.2em] text-gray-400 uppercase">Initializing Dashboard</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0B1120] text-gray-100 font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
+    <div className="min-h-screen bg-[#0B1120] text-gray-100 font-sans selection:bg-cyan-500/30 selection:text-cyan-200 pb-12">
       
-      {/* 顶部导航栏 */}
+      {/* 顶部导航 */}
       <nav className="border-b border-gray-800 bg-[#0B1120]/80 backdrop-blur-md sticky top-0 z-50">
-        <div className="max-w-[1920px] mx-auto px-6 h-16 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-                <div className="bg-gradient-to-br from-cyan-500 to-blue-600 p-2 rounded-lg">
-                    <Globe size={20} className="text-white" />
+        <div className="max-w-[1920px] mx-auto px-6 h-20 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+                <div className="bg-gradient-to-br from-cyan-500 to-blue-600 w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-cyan-500/20">
+                    <Globe size={22} className="text-white" />
                 </div>
-                <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-100 to-gray-400">
-                    GlobalPulse <span className="font-normal text-gray-500 text-sm hidden sm:inline-block">| 开源项目全球化分析</span>
-                </h1>
+                <div>
+                    <h1 className="text-xl font-bold text-white tracking-tight">
+                        GlobalPulse <span className="text-cyan-500">Analytics</span>
+                    </h1>
+                    <p className="text-[10px] text-gray-500 uppercase tracking-widest font-medium">Open Source Intelligence</p>
+                </div>
             </div>
             
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-6">
                 <div className="relative group">
+                    <div className="absolute -inset-0.5 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-lg blur opacity-30 group-hover:opacity-75 transition duration-200"></div>
                     <select
                         value={selectedProject}
                         onChange={(e) => setSelectedProject(e.target.value)}
-                        className="appearance-none bg-gray-900 border border-gray-700 text-gray-300 py-2 pl-4 pr-10 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all hover:border-gray-600 cursor-pointer text-sm font-medium"
+                        className="relative bg-gray-900 border border-gray-700 text-gray-200 py-2.5 pl-4 pr-10 rounded-lg focus:outline-none focus:ring-1 focus:ring-cyan-500 transition-all cursor-pointer text-sm font-medium w-48 appearance-none"
                     >
                         {PROJECT_OPTIONS.map(proj => <option key={proj} value={proj}>{proj}</option>)}
                     </select>
-                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-                        <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-400">
+                         <MapIcon size={14} />
                     </div>
-                </div>
-                <div className="h-8 w-8 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-xs text-cyan-400 font-bold">
-                    GP
                 </div>
             </div>
         </div>
       </nav>
 
-      {/* 主内容区域 - 宽屏布局 */}
       <main className="max-w-[1920px] mx-auto p-6 lg:p-8 space-y-8">
         
-        {/* 第一行：KPI 指标概览 */}
+        {/* Row 1: KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
             <MetricCard
-                title="全球化综合得分"
+                title="Global Score"
                 value={data.globalScore.toFixed(2)}
+                unit="/1.0"
                 icon={Activity}
                 subValue={`OpenRank: ${data.openRank}`}
                 info="结合时间覆盖率和地理多样性的加权综合评分。"
                 color={data.globalScore > 0.7 ? "text-emerald-400" : "text-amber-400"}
             />
             <MetricCard
-                title="24HRI 时区覆盖"
-                value={`${data.hriCoverage}%`}
+                title="24HRI Coverage"
+                value={`${data.hriCoverage}`}
+                unit="%"
                 icon={Clock}
-                subValue="基于香农熵计算"
+                subValue="Timezone Efficiency"
                 info="项目在24小时周期内的活动覆盖比例。"
                 color="text-cyan-400"
             />
             <MetricCard
-                title="GeoDiversity 熵值"
+                title="Geo Diversity"
                 value={data.geoData.diversityScore.toFixed(2)}
                 icon={MapIcon}
-                subValue={`${data.geoData.countryData.length} 个国家/地区`}
-                info="地理位置分布的香农熵，值越高代表分布越均匀。"
-                color="text-indigo-400"
+                subValue={`${data.geoData.countryData.length} Regions Active`}
+                info="地理位置分布的香农熵。"
+                color="text-purple-400"
             />
             <MetricCard
-                title="活跃贡献者"
+                title="Contributors"
                 value={data.totalContributors}
-                icon={Tally3}
-                subValue={`总提交: ${data.totalCommits}`}
+                icon={Users}
+                subValue={`${data.totalCommits} Commits Total`}
                 info="过去统计周期内的独立贡献者ID数量。"
                 color="text-pink-400"
             />
         </div>
 
-        {/* 第二行：主要可视化图表 (Grid 布局优化) */}
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+        {/* Row 2: Main Analysis Grid */}
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 h-auto">
             
-            {/* 左侧：趋势与时间 (占 8 列) */}
-            <div className="xl:col-span-8 space-y-6">
+            {/* Left Column (Main) - 8 Cols */}
+            <div className="xl:col-span-8 flex flex-col gap-6">
                 
-                {/* 1. 历史趋势图 */}
-                <div className="bg-gray-800 rounded-2xl shadow-lg border border-gray-700 p-6">
-                    <SectionHeader title="全球化演进趋势" icon={TrendingUp} subtitle="过去 6 个月的得分变化与活跃度对比" />
-                    <div className="h-[320px] w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={data.history} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                                <defs>
-                                    <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3}/>
-                                        <stop offset="95%" stopColor="#06b6d4" stopOpacity={0}/>
-                                    </linearGradient>
-                                    <linearGradient id="colorCommits" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3}/>
-                                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
-                                    </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                                <XAxis dataKey="month" stroke="#9CA3AF" tickLine={false} axisLine={false} dy={10} />
-                                <YAxis yAxisId="left" stroke="#06b6d4" orientation="left" tickLine={false} axisLine={false} tickFormatter={(v)=>v.toFixed(1)} />
-                                <YAxis yAxisId="right" stroke="#8b5cf6" orientation="right" tickLine={false} axisLine={false} />
-                                <Tooltip 
-                                    contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '8px' }}
-                                    itemStyle={{ color: '#E5E7EB' }}
-                                />
-                                <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                                <Area yAxisId="left" type="monotone" dataKey="score" name="全球化得分" stroke="#06b6d4" strokeWidth={3} fillOpacity={1} fill="url(#colorScore)" />
-                                <Area yAxisId="right" type="monotone" dataKey="commits" name="月度提交量" stroke="#8b5cf6" strokeWidth={3} fillOpacity={1} fill="url(#colorCommits)" />
-                            </AreaChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
-
-                {/* 2. 工作节奏热力图 */}
-                <div className="bg-gray-800 rounded-2xl shadow-lg border border-gray-700 p-6">
-                    <div className="flex justify-between items-start mb-4">
-                        <SectionHeader title="工作节奏热力图" icon={Calendar} subtitle="星期 vs 小时：识别'日不落'开发模式" />
-                        <span className="text-xs font-mono text-cyan-400 bg-cyan-900/30 px-2 py-1 rounded">UTC Timezone</span>
-                    </div>
-                    <div className="w-full">
-                        <ActivityHeatmap data={data.heatmapData} />
-                    </div>
-                </div>
-            </div>
-
-            {/* 右侧：地理分布与详情 (占 4 列) */}
-            <div className="xl:col-span-4 space-y-6">
-                
-                {/* 1. 地理分布饼图 */}
-                <div className="bg-gray-800 rounded-2xl shadow-lg border border-gray-700 p-6 h-[400px]">
-                    <SectionHeader title="贡献者地域分布" icon={Globe} />
-                    <div className="h-[300px] relative">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Pie
-                                    data={data.geoData.countryData}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={100}
-                                    paddingAngle={5}
-                                    dataKey="value"
-                                    stroke="none"
-                                >
-                                    {data.geoData.countryData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                    ))}
-                                </Pie>
-                                <Tooltip 
-                                    contentStyle={{ backgroundColor: '#111827', border: 'none', borderRadius: '8px' }}
-                                    formatter={(value, name) => [`${value} Commits`, name]} 
-                                />
-                                <Legend verticalAlign="bottom" height={36}/>
-                            </PieChart>
-                        </ResponsiveContainer>
-                        {/* 中心文字 */}
-                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                            <span className="text-3xl font-bold text-gray-100">{data.geoData.countryData.length}</span>
-                            <span className="text-xs text-gray-500 uppercase tracking-widest">Countries</span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* 2. 24HRI 柱状图 (简化版，作为侧边辅助) */}
-                <div className="bg-gray-800 rounded-2xl shadow-lg border border-gray-700 p-6 h-[340px]">
-                    <SectionHeader title="24小时活跃概览" icon={Clock} />
-                    <ResponsiveContainer width="100%" height="80%">
-                        <BarChart data={data.hriData}>
-                            <Bar dataKey="commits" fill="#3b82f6" radius={[4, 4, 0, 0]}>
-                                {data.hriData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={entry.commits > 5 ? '#06b6d4' : '#1e3a8a'} />
-                                ))}
-                            </Bar>
+                {/* 1. Regional Evolution (Stacked Bar) - NEW */}
+                <ChartCard title="区域贡献演进 (Regional Evolution)" icon={TrendingUp} subtitle="过去半年各大洲贡献量堆叠趋势" className="h-[380px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={data.regionalHistory} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                            <XAxis dataKey="month" stroke="#9CA3AF" tickLine={false} axisLine={false} />
+                            <YAxis stroke="#9CA3AF" tickLine={false} axisLine={false} />
                             <Tooltip 
-                                cursor={{fill: 'transparent'}}
-                                contentStyle={{ backgroundColor: '#111827', border: 'none' }}
+                                contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '8px' }}
+                                cursor={{fill: '#1F2937'}}
                             />
+                            <Legend wrapperStyle={{ paddingTop: '10px' }} iconType="circle" />
+                            <Bar dataKey="North America" stackId="a" fill="#3b82f6" radius={[0,0,0,0]} barSize={40} />
+                            <Bar dataKey="Asia" stackId="a" fill="#06b6d4" />
+                            <Bar dataKey="Europe" stackId="a" fill="#8b5cf6" />
+                            <Bar dataKey="Others" stackId="a" fill="#64748b" radius={[4,4,0,0]} />
                         </BarChart>
                     </ResponsiveContainer>
-                </div>
+                </ChartCard>
+
+                {/* 2. Heatmap */}
+                <ChartCard title="协作脉冲热力图 (Activity Pulse)" icon={Calendar} subtitle="UTC 时间周视图：识别跨时区协作模式" className="h-[280px]">
+                     <ActivityHeatmap data={data.heatmapData} />
+                </ChartCard>
+            </div>
+
+            {/* Right Column (Details) - 4 Cols */}
+            <div className="xl:col-span-4 flex flex-col gap-6">
+                
+                {/* 1. Globalization Radar - NEW */}
+                <ChartCard title="全球化健康雷达" icon={Target} subtitle="五维诊断模型" className="h-[350px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <RadarChart cx="50%" cy="50%" outerRadius="70%" data={data.radarData}>
+                            <PolarGrid stroke="#374151" />
+                            <PolarAngleAxis dataKey="subject" tick={{ fill: '#9CA3AF', fontSize: 12 }} />
+                            <PolarRadiusAxis angle={30} domain={[0, 150]} tick={false} axisLine={false} />
+                            <Radar
+                                name={selectedProject}
+                                dataKey="A"
+                                stroke={RADAR_COLOR}
+                                strokeWidth={2}
+                                fill={RADAR_COLOR}
+                                fillOpacity={0.3}
+                            />
+                            <Tooltip 
+                                contentStyle={{ backgroundColor: '#111827', border: 'none', borderRadius: '8px' }}
+                                itemStyle={{ color: RADAR_COLOR }}
+                            />
+                        </RadarChart>
+                    </ResponsiveContainer>
+                </ChartCard>
+
+                {/* 2. Contributor Leaderboard - NEW */}
+                <ChartCard title="核心贡献者名人堂" icon={Award} subtitle="Top Contributors" className="flex-1 min-h-[300px]">
+                    <div className="overflow-y-auto pr-2 custom-scrollbar max-h-[250px]">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="text-xs text-gray-500 border-b border-gray-700">
+                                    <th className="py-2 font-medium">Rank</th>
+                                    <th className="py-2 font-medium">User</th>
+                                    <th className="py-2 font-medium">Region</th>
+                                    <th className="py-2 font-medium text-right">Commits</th>
+                                </tr>
+                            </thead>
+                            <tbody className="text-sm">
+                                {data.topContributors.map((user, idx) => (
+                                    <tr key={user.id} className="group hover:bg-gray-700/30 transition-colors border-b border-gray-800/50 last:border-0">
+                                        <td className="py-3">
+                                            <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold 
+                                                ${idx === 0 ? 'bg-yellow-500/20 text-yellow-400' : 
+                                                  idx === 1 ? 'bg-gray-400/20 text-gray-300' : 
+                                                  idx === 2 ? 'bg-orange-700/20 text-orange-400' : 'text-gray-600'}`}>
+                                                {idx + 1}
+                                            </span>
+                                        </td>
+                                        <td className="py-3 font-medium text-gray-300 group-hover:text-white">{user.name}</td>
+                                        <td className="py-3">
+                                            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-gray-800 border border-gray-700 text-gray-400">
+                                                {user.location}
+                                            </span>
+                                        </td>
+                                        <td className="py-3 text-right font-mono text-cyan-400">{user.count}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </ChartCard>
             </div>
         </div>
 
-        {/* 第三行：AI 洞察 (全宽) */}
+        {/* Row 3: AI Insight (Full Width) */}
         <InsightGenerator 
             data={data} 
             selectedProject={selectedProject} 
@@ -534,12 +581,7 @@ const App = () => {
             loading={insightLoading} 
             insightText={insightText} 
         />
-
       </main>
-      
-      <footer className="max-w-[1920px] mx-auto px-8 py-6 text-center text-gray-600 text-sm">
-        <p>&copy; 2023 GlobalPulse Analytics. Powered by Gemini & React.</p>
-      </footer>
     </div>
   );
 };

@@ -238,6 +238,9 @@ const useDataProcessor = (selectedProject) => {
   }, [selectedProject, commits, history, regionalHistory, radarData]);
 };
 
+// --- 辅助组件 ---
+// ... (ActivityHeatmap remains the same)
+
 // --- UI 组件库 ---
 
 const InfoTooltip = ({ content }) => (
@@ -441,13 +444,17 @@ const App = () => {
     if (active && payload && payload.length) {
       const commitData = payload.find(p => p.dataKey === 'commits');
       const scoreData = payload.find(p => p.dataKey === 'score');
-      return (
-        <div className="p-3 bg-gray-900 border border-gray-700 text-xs text-gray-200 rounded-lg shadow-xl">
-          <p className="font-bold mb-1">{label}</p>
-          <p className="text-cyan-400">得分: {scoreData.value.toFixed(2)}</p>
-          <p className="text-purple-400">提交量: {commitData.value}</p>
-        </div>
-      );
+      
+      // 确保 scoreData 和 commitData 都存在，防止读取 undefined 的 value 属性
+      if (commitData && scoreData) {
+          return (
+            <div className="p-3 bg-gray-900 border border-gray-700 text-xs text-gray-200 rounded-lg shadow-xl">
+              <p className="font-bold mb-1">{label}</p>
+              <p className="text-cyan-400">得分: {scoreData.value !== undefined ? scoreData.value.toFixed(2) : 'N/A'}</p>
+              <p className="text-purple-400">提交量: {commitData.value !== undefined ? commitData.value : 'N/A'}</p>
+            </div>
+          );
+      }
     }
     return null;
   };
@@ -540,7 +547,8 @@ const App = () => {
                         <XAxis dataKey="month" stroke="#9CA3AF" tickLine={false} axisLine={false} />
                         <YAxis yAxisId="left" orientation="left" stroke="#06b6d4" domain={[0.3, 1]} tickLine={false} axisLine={false} />
                         <YAxis yAxisId="right" orientation="right" stroke="#8b5cf6" tickLine={false} axisLine={false} />
-                        <Tooltip content={renderCommitTooltip} />
+                        {/* 使用修正后的 renderCommitTooltip */}
+                        <Tooltip content={renderCommitTooltip} /> 
                         <Legend wrapperStyle={{ paddingTop: '10px' }} iconType="circle" />
                         <Area yAxisId="left" type="monotone" dataKey="score" name="全球化得分" stroke="#06b6d4" fill="#06b6d4" fillOpacity={0.2} activeDot={{ r: 8 }} />
                         <Line yAxisId="right" type="monotone" dataKey="commits" name="提交量" stroke="#8b5cf6" fill="#8b5cf6" activeDot={{ r: 8 }} />

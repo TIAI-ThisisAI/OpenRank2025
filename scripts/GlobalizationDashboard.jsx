@@ -4,13 +4,13 @@ import {
   PieChart, Pie, Cell, Legend, LineChart, Line, AreaChart, Area,
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 } from 'recharts';
-import { Globe, Clock, Tally3, TrendingUp, HelpCircle, Sparkles, Activity, Calendar, Map as MapIcon, Award, Users, Target } from 'lucide-react';
+import { Globe, Clock, Tally3, TrendingUp, HelpCircle, Sparkles, Activity, Calendar, Map as MapIcon, Award, Users, Target, Zap, Clock4 } from 'lucide-react';
 
 // --- GEMINI API 配置 ---
 const API_KEY = ""; // 请替换为您的 Gemini API 密钥
 const API_URL_GEMINI = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent";
 
-// --- MOCK DATA SIMULATION (增强版 v2) ---
+// --- MOCK DATA SIMULATION (增强版 v3) ---
 const MOCK_CLEANED_DATA = {
   "Project-A": {
     commits: [
@@ -24,7 +24,7 @@ const MOCK_CLEANED_DATA = {
                 timestamp_unix: baseTime - randomOffset,
                 location_iso3: location,
                 contributor_id: `u${Math.floor(Math.random() * 20)}`,
-                contributor_name: `User-${Math.floor(Math.random() * 20)}` // Added names
+                contributor_name: `User-${Math.floor(Math.random() * 20)}`
             };
         })
     ],
@@ -94,7 +94,7 @@ const MOCK_CLEANED_DATA = {
 };
 
 const PROJECT_OPTIONS = Object.keys(MOCK_CLEANED_DATA);
-const COLORS = ['#06b6d4', '#f59e0b', '#ec4899', '#8b5cf6', '#10b981', '#ef4444'];
+const COLORS = ['#06b6d4', '#f59e0b', '#ec4899', '#8b5cf6', '#10b981', '#ef4444', '#f97316', '#a1a1aa'];
 const RADAR_COLOR = '#06b6d4';
 
 // --- 辅助组件 ---
@@ -149,10 +149,11 @@ const useDataProcessor = (selectedProject) => {
   return useMemo(() => {
     if (!commits.length) {
       return {
-        hriData: [], geoData: { countryData: [], diversityScore: 0 },
+        hriData: [], geoData: { countryData: [], diversityScore: 0, pieData: [] },
         heatmapData: [],
         globalScore: 0, openRank: 0, totalCommits: 0, totalContributors: 0,
-        history, regionalHistory, radarData, rawCommits: [], topContributors: []
+        history, regionalHistory, radarData, rawCommits: [], topContributors: [],
+        hriCoverage: 0, topCountriesStr: ""
       };
     }
 
@@ -187,13 +188,24 @@ const useDataProcessor = (selectedProject) => {
     });
 
     const hriData = hourlyCounts.map((count, hour) => ({
-      hour: `${hour.toString().padStart(2, '0')}:00`,
+      hour: `${hour.toString().padStart(2, '0')}`,
       commits: count,
     }));
 
     const countryData = Object.entries(countryCounts)
       .sort(([, a], [, b]) => b - a)
       .map(([name, value]) => ({ name, value }));
+      
+    // 3. Pie Chart Data
+    const top5Countries = countryData.slice(0, 5);
+    const otherCommits = countryData.slice(5).reduce((sum, c) => sum + c.value, 0);
+
+    const pieData = [
+        ...top5Countries,
+        // Only include "Other" if there are commits left
+        ...(otherCommits > 0 ? [{ name: '其他地区', value: otherCommits }] : [])
+    ].filter(d => d.value > 0);
+
 
     const topContributors = Object.values(contributorStats)
         .sort((a, b) => b.count - a.count)
@@ -214,7 +226,7 @@ const useDataProcessor = (selectedProject) => {
 
     return {
       hriData, 
-      geoData: { countryData, diversityScore },
+      geoData: { countryData, diversityScore, pieData },
       heatmapData: heatmapGrid,
       globalScore, openRank, totalCommits: commits.length, totalContributors,
       rawCommits: commits,
@@ -363,25 +375,49 @@ const App = () => {
       项目: ${selectedProject}
       [核心指标] 综合得分:${data.globalScore}, 24HRI:${data.hriCoverage}%, Geo熵:${data.geoData.diversityScore}
       [五维雷达] ${data.radarData.map(r => `${r.subject}:${r.A}`).join(', ')}
-      [区域增长] 最近一个月北美占比高吗？请根据图表推断。
-      [贡献者] 核心贡献者有${data.topContributors.length}位。
+      [地域集中度] Top5国家贡献占比高。
+      [历史趋势] 全球化得分在持续上升，但贡献量的波动较大。
     `;
-    const systemPrompt = "你是一位资深的开源社区运营总监。请根据提供的多维数据，写一份简短精悍的'全球化健康度诊断书'。包含：1. 核心优势（如时区覆盖是否良好）。2. 警示信号（如是否存在区域衰退）。3. 下一步行动建议。语气专业、犀利。";
+    const systemPrompt = "你是一位资深的开源社区运营总监。请根据提供的多维数据，写一份简短精悍的'全球化健康度诊断书'。包含：1. 核心优势（如时区覆盖是否良好）。2. 警示信号（如是否存在区域衰退或集中度过高）。3. 下一步行动建议。语气专业、犀利。";
     
-    try {
-        const response = await fetch(`${API_URL_GEMINI}?key=${API_KEY}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: `分析数据：\n${metricsSummary}` }] }],
-                systemInstruction: { parts: [{ text: systemPrompt }] },
-            })
-        });
-        const result = await response.json();
-        setInsightText(result.candidates?.[0]?.content?.parts?.[0]?.text || "分析失败，请重试。");
-    } catch (e) {
-        setInsightText("网络请求错误。");
+    // Retry logic (Exponential Backoff)
+    const MAX_RETRIES = 3;
+    let lastError = null;
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        try {
+            const response = await fetch(`${API_URL_GEMINI}?key=${API_KEY}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: `分析数据：\n${metricsSummary}` }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                })
+            });
+
+            if (!response.ok) {
+                // If response is not OK, it might be a rate limit error (429)
+                throw new Error(`API returned status ${response.status}`);
+            }
+
+            const result = await response.json();
+            setInsightText(result.candidates?.[0]?.content?.parts?.[0]?.text || "分析失败，请重试。");
+            lastError = null; // Clear error on success
+            break; // Exit loop on success
+
+        } catch (e) {
+            lastError = e;
+            if (attempt < MAX_RETRIES - 1) {
+                const delay = Math.pow(2, attempt) * 1000;
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
     }
+    
+    if (lastError) {
+        setInsightText(`网络请求错误或API调用失败。错误信息: ${lastError.message}`);
+    }
+
     setInsightLoading(false);
   }, [selectedProject, data]);
   
@@ -399,6 +435,24 @@ const App = () => {
       </div>
     );
   }
+
+  // Custom tooltips for Recharts
+  const renderCommitTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+      const commitData = payload.find(p => p.dataKey === 'commits');
+      const scoreData = payload.find(p => p.dataKey === 'score');
+      return (
+        <div className="p-3 bg-gray-900 border border-gray-700 text-xs text-gray-200 rounded-lg shadow-xl">
+          <p className="font-bold mb-1">{label}</p>
+          <p className="text-cyan-400">得分: {scoreData.value.toFixed(2)}</p>
+          <p className="text-purple-400">提交量: {commitData.value}</p>
+        </div>
+      );
+    }
+    return null;
+  };
+  
+  const renderPieLabel = ({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`;
 
   return (
     <div className="min-h-screen bg-[#0B1120] text-gray-100 font-sans selection:bg-cyan-500/30 selection:text-cyan-200 pb-12">
@@ -476,13 +530,61 @@ const App = () => {
             />
         </div>
 
-        {/* Row 2: Main Analysis Grid */}
+        {/* Row 2: Trend & Concentration Analysis (NEW ROW) */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[400px]">
+            {/* 1. Score & Commit Trend */}
+            <ChartCard title="历史趋势对比 (Score & Commit Trend)" icon={TrendingUp} subtitle="全球化得分 vs. 月度提交量" className="lg:col-span-2">
+                <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={data.history} margin={{ top: 10, right: 30, left: 20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                        <XAxis dataKey="month" stroke="#9CA3AF" tickLine={false} axisLine={false} />
+                        <YAxis yAxisId="left" orientation="left" stroke="#06b6d4" domain={[0.3, 1]} tickLine={false} axisLine={false} />
+                        <YAxis yAxisId="right" orientation="right" stroke="#8b5cf6" tickLine={false} axisLine={false} />
+                        <Tooltip content={renderCommitTooltip} />
+                        <Legend wrapperStyle={{ paddingTop: '10px' }} iconType="circle" />
+                        <Area yAxisId="left" type="monotone" dataKey="score" name="全球化得分" stroke="#06b6d4" fill="#06b6d4" fillOpacity={0.2} activeDot={{ r: 8 }} />
+                        <Line yAxisId="right" type="monotone" dataKey="commits" name="提交量" stroke="#8b5cf6" fill="#8b5cf6" activeDot={{ r: 8 }} />
+                    </AreaChart>
+                </ResponsiveContainer>
+            </ChartCard>
+
+            {/* 2. Geographic Concentration (Pie Chart) */}
+            <ChartCard title="地域集中度" icon={MapIcon} subtitle="Top 5国家贡献占比" className="lg:col-span-1">
+                <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                        <Pie
+                            data={data.geoData.pieData}
+                            dataKey="value"
+                            nameKey="name"
+                            cx="50%"
+                            cy="50%"
+                            outerRadius={120}
+                            fill="#8884d8"
+                            labelLine={false}
+                            label={renderPieLabel}
+                        >
+                            {data.geoData.pieData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                        </Pie>
+                        <Tooltip 
+                            formatter={(value, name) => [value, name]}
+                            contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '8px' }}
+                        />
+                        <Legend wrapperStyle={{ paddingTop: '10px' }} iconType="circle" layout="vertical" align="right" verticalAlign="middle" />
+                    </PieChart>
+                </ResponsiveContainer>
+            </ChartCard>
+        </div>
+
+
+        {/* Row 3: Main Analysis Grid (Re-numbered) */}
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 h-auto">
             
             {/* Left Column (Main) - 8 Cols */}
             <div className="xl:col-span-8 flex flex-col gap-6">
                 
-                {/* 1. Regional Evolution (Stacked Bar) - NEW */}
+                {/* 1. Regional Evolution (Stacked Bar) */}
                 <ChartCard title="区域贡献演进 (Regional Evolution)" icon={TrendingUp} subtitle="过去半年各大洲贡献量堆叠趋势" className="h-[380px]">
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={data.regionalHistory} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
@@ -502,7 +604,30 @@ const App = () => {
                     </ResponsiveContainer>
                 </ChartCard>
 
-                {/* 2. Heatmap */}
+                {/* 2. HRI Distribution (Line Chart) - NEW */}
+                <ChartCard title="24小时活动分布 (HRI Distribution)" icon={Clock4} subtitle="UTC 时间轴：识别活动高峰和低谷" className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={data.hriData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                            <XAxis 
+                                dataKey="hour" 
+                                stroke="#9CA3AF" 
+                                tickLine={false} 
+                                axisLine={false} 
+                                interval={2} 
+                                tickFormatter={(h) => `${h}H`}
+                            />
+                            <YAxis stroke="#9CA3AF" tickLine={false} axisLine={false} />
+                            <Tooltip 
+                                contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '8px' }}
+                                labelFormatter={(h) => `UTC ${h}:00`}
+                            />
+                            <Line type="monotone" dataKey="commits" name="提交量" stroke="#10b981" strokeWidth={3} dot={{ stroke: '#10b981', strokeWidth: 2, r: 4 }} activeDot={{ r: 8 }} />
+                        </LineChart>
+                    </ResponsiveContainer>
+                </ChartCard>
+
+                {/* 3. Heatmap */}
                 <ChartCard title="协作脉冲热力图 (Activity Pulse)" icon={Calendar} subtitle="UTC 时间周视图：识别跨时区协作模式" className="h-[280px]">
                      <ActivityHeatmap data={data.heatmapData} />
                 </ChartCard>
@@ -511,7 +636,7 @@ const App = () => {
             {/* Right Column (Details) - 4 Cols */}
             <div className="xl:col-span-4 flex flex-col gap-6">
                 
-                {/* 1. Globalization Radar - NEW */}
+                {/* 1. Globalization Radar */}
                 <ChartCard title="全球化健康雷达" icon={Target} subtitle="五维诊断模型" className="h-[350px]">
                     <ResponsiveContainer width="100%" height="100%">
                         <RadarChart cx="50%" cy="50%" outerRadius="70%" data={data.radarData}>
@@ -534,9 +659,9 @@ const App = () => {
                     </ResponsiveContainer>
                 </ChartCard>
 
-                {/* 2. Contributor Leaderboard - NEW */}
+                {/* 2. Contributor Leaderboard */}
                 <ChartCard title="核心贡献者名人堂" icon={Award} subtitle="Top Contributors" className="flex-1 min-h-[300px]">
-                    <div className="overflow-y-auto pr-2 custom-scrollbar max-h-[250px]">
+                    <div className="overflow-y-auto pr-2 custom-scrollbar max-h-[300px]">
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="text-xs text-gray-500 border-b border-gray-700">
@@ -573,7 +698,7 @@ const App = () => {
             </div>
         </div>
 
-        {/* Row 3: AI Insight (Full Width) */}
+        {/* Row 4: AI Insight (Full Width) */}
         <InsightGenerator 
             data={data} 
             selectedProject={selectedProject} 

@@ -4,11 +4,6 @@ import math
 
 # 数据库连接配置
 client = clickhouse_connect.get_client(
-    host='cc-2ze7189376o5m9759.public.clickhouse.ads.aliyuncs.com',
-    port=8123,
-    user='xlab',
-    password='Xlab2025!',
-    database='opensource'
 )
 
 # 定义要查询的仓库列表

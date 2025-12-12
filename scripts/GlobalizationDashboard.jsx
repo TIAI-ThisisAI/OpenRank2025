@@ -434,7 +434,7 @@ const App = () => {
                 <Globe size={32} className="text-gray-100 animate-pulse" />
             </div>
         </div>
-        <p className="mt-6 text-sm font-medium tracking-[0.2em] text-gray-400 uppercase">Initializing Dashboard</p>
+        <p className="mt-6 text-sm font-medium tracking-[0.2em] text-gray-400 uppercase">正在初始化仪表盘</p>
       </div>
     );
   }
@@ -442,16 +442,17 @@ const App = () => {
   // Custom tooltips for Recharts
   const renderCommitTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
+      // 查找对应的数据键
       const commitData = payload.find(p => p.dataKey === 'commits');
       const scoreData = payload.find(p => p.dataKey === 'score');
       
-      // 确保 scoreData 和 commitData 都存在，防止读取 undefined 的 value 属性
-      if (commitData && scoreData) {
+      // 确保 scoreData 和 commitData 都存在且 value 不为 undefined，防止 TypeError
+      if (commitData && commitData.value !== undefined && scoreData && scoreData.value !== undefined) {
           return (
             <div className="p-3 bg-gray-900 border border-gray-700 text-xs text-gray-200 rounded-lg shadow-xl">
               <p className="font-bold mb-1">{label}</p>
-              <p className="text-cyan-400">得分: {scoreData.value !== undefined ? scoreData.value.toFixed(2) : 'N/A'}</p>
-              <p className="text-purple-400">提交量: {commitData.value !== undefined ? commitData.value : 'N/A'}</p>
+              <p className="text-cyan-400">得分: {scoreData.value.toFixed(2)}</p>
+              <p className="text-purple-400">提交量: {commitData.value}</p>
             </div>
           );
       }
@@ -475,7 +476,7 @@ const App = () => {
                     <h1 className="text-xl font-bold text-white tracking-tight">
                         GlobalPulse <span className="text-cyan-500">Analytics</span>
                     </h1>
-                    <p className="text-[10px] text-gray-500 uppercase tracking-widest font-medium">Open Source Intelligence</p>
+                    <p className="text-[10px] text-gray-500 uppercase tracking-widest font-medium">开源智能分析</p>
                 </div>
             </div>
             
@@ -499,10 +500,10 @@ const App = () => {
 
       <main className="max-w-[1920px] mx-auto p-6 lg:p-8 space-y-8">
         
-        {/* Row 1: KPI Cards */}
+        {/* Row 1: KPI Cards (4 columns) */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
             <MetricCard
-                title="Global Score"
+                title="全球化综合得分"
                 value={data.globalScore.toFixed(2)}
                 unit="/1.0"
                 icon={Activity}
@@ -511,36 +512,37 @@ const App = () => {
                 color={data.globalScore > 0.7 ? "text-emerald-400" : "text-amber-400"}
             />
             <MetricCard
-                title="24HRI Coverage"
+                title="24HRI 覆盖率"
                 value={`${data.hriCoverage}`}
                 unit="%"
                 icon={Clock}
-                subValue="Timezone Efficiency"
+                subValue="时区效率"
                 info="项目在24小时周期内的活动覆盖比例。"
                 color="text-cyan-400"
             />
             <MetricCard
-                title="Geo Diversity"
+                title="地理多样性 (Geo Entropy)"
                 value={data.geoData.diversityScore.toFixed(2)}
                 icon={MapIcon}
-                subValue={`${data.geoData.countryData.length} Regions Active`}
+                subValue={`${data.geoData.countryData.length} 个活跃地区`}
                 info="地理位置分布的香农熵。"
                 color="text-purple-400"
             />
             <MetricCard
-                title="Contributors"
+                title="独立贡献者"
                 value={data.totalContributors}
                 icon={Users}
-                subValue={`${data.totalCommits} Commits Total`}
+                subValue={`总提交量: ${data.totalCommits}`}
                 info="过去统计周期内的独立贡献者ID数量。"
                 color="text-pink-400"
             />
         </div>
 
-        {/* Row 2: Trend & Concentration Analysis (NEW ROW) */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[400px]">
-            {/* 1. Score & Commit Trend */}
-            <ChartCard title="历史趋势对比 (Score & Commit Trend)" icon={TrendingUp} subtitle="全球化得分 vs. 月度提交量" className="lg:col-span-2">
+        {/* Row 2: Charts Grid (New 3-Column Layout) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            
+            {/* 1. Score & Commit Trend (跨越 2 列) */}
+            <ChartCard title="历史趋势对比 (Score & Commit Trend)" icon={TrendingUp} subtitle="全球化得分 vs. 月度提交量" className="xl:col-span-2 h-[400px]">
                 <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={data.history} margin={{ top: 10, right: 30, left: 20, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
@@ -556,8 +558,8 @@ const App = () => {
                 </ResponsiveContainer>
             </ChartCard>
 
-            {/* 2. Geographic Concentration (Pie Chart) */}
-            <ChartCard title="地域集中度" icon={MapIcon} subtitle="Top 5国家贡献占比" className="lg:col-span-1">
+            {/* 2. Geographic Concentration (1 列) */}
+            <ChartCard title="地域集中度" icon={MapIcon} subtitle="Top 5国家贡献占比" className="h-[400px]">
                 <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                         <Pie
@@ -583,137 +585,126 @@ const App = () => {
                     </PieChart>
                 </ResponsiveContainer>
             </ChartCard>
-        </div>
 
+            {/* 3. Regional Evolution (1 列) */}
+            <ChartCard title="区域贡献演进 (Regional Evolution)" icon={TrendingUp} subtitle="过去半年各大洲贡献量堆叠趋势" className="h-[400px]">
+                <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={data.regionalHistory} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                        <XAxis dataKey="month" stroke="#9CA3AF" tickLine={false} axisLine={false} />
+                        <YAxis stroke="#9CA3AF" tickLine={false} axisLine={false} />
+                        <Tooltip 
+                            contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '8px' }}
+                            cursor={{fill: '#1F2937'}}
+                        />
+                        <Legend wrapperStyle={{ paddingTop: '10px' }} iconType="circle" />
+                        <Bar dataKey="North America" stackId="a" fill="#3b82f6" radius={[0,0,0,0]} barSize={40} />
+                        <Bar dataKey="Asia" stackId="a" fill="#06b6d4" />
+                        <Bar dataKey="Europe" stackId="a" fill="#8b5cf6" />
+                        <Bar dataKey="Others" stackId="a" fill="#64748b" radius={[4,4,0,0]} />
+                    </BarChart>
+                </ResponsiveContainer>
+            </ChartCard>
 
-        {/* Row 3: Main Analysis Grid (Re-numbered) */}
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 h-auto">
+            {/* 4. HRI Distribution (1 列) */}
+            <ChartCard title="24小时活动分布 (HRI Distribution)" icon={Clock4} subtitle="UTC 时间轴：识别活动高峰和低谷" className="h-[400px]">
+                <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={data.hriData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                        <XAxis 
+                            dataKey="hour" 
+                            stroke="#9CA3AF" 
+                            tickLine={false} 
+                            axisLine={false} 
+                            interval={2} 
+                            tickFormatter={(h) => `${h}H`}
+                        />
+                        <YAxis stroke="#9CA3AF" tickLine={false} axisLine={false} />
+                        <Tooltip 
+                            contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '8px' }}
+                            labelFormatter={(h) => `UTC ${h}:00`}
+                        />
+                        <Line type="monotone" dataKey="commits" name="提交量" stroke="#10b981" strokeWidth={3} dot={{ stroke: '#10b981', strokeWidth: 2, r: 4 }} activeDot={{ r: 8 }} />
+                    </LineChart>
+                </ResponsiveContainer>
+            </ChartCard>
             
-            {/* Left Column (Main) - 8 Cols */}
-            <div className="xl:col-span-8 flex flex-col gap-6">
-                
-                {/* 1. Regional Evolution (Stacked Bar) */}
-                <ChartCard title="区域贡献演进 (Regional Evolution)" icon={TrendingUp} subtitle="过去半年各大洲贡献量堆叠趋势" className="h-[380px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={data.regionalHistory} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                            <XAxis dataKey="month" stroke="#9CA3AF" tickLine={false} axisLine={false} />
-                            <YAxis stroke="#9CA3AF" tickLine={false} axisLine={false} />
-                            <Tooltip 
-                                contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '8px' }}
-                                cursor={{fill: '#1F2937'}}
-                            />
-                            <Legend wrapperStyle={{ paddingTop: '10px' }} iconType="circle" />
-                            <Bar dataKey="North America" stackId="a" fill="#3b82f6" radius={[0,0,0,0]} barSize={40} />
-                            <Bar dataKey="Asia" stackId="a" fill="#06b6d4" />
-                            <Bar dataKey="Europe" stackId="a" fill="#8b5cf6" />
-                            <Bar dataKey="Others" stackId="a" fill="#64748b" radius={[4,4,0,0]} />
-                        </BarChart>
-                    </ResponsiveContainer>
-                </ChartCard>
-
-                {/* 2. HRI Distribution (Line Chart) - NEW */}
-                <ChartCard title="24小时活动分布 (HRI Distribution)" icon={Clock4} subtitle="UTC 时间轴：识别活动高峰和低谷" className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={data.hriData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                            <XAxis 
-                                dataKey="hour" 
-                                stroke="#9CA3AF" 
-                                tickLine={false} 
-                                axisLine={false} 
-                                interval={2} 
-                                tickFormatter={(h) => `${h}H`}
-                            />
-                            <YAxis stroke="#9CA3AF" tickLine={false} axisLine={false} />
-                            <Tooltip 
-                                contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '8px' }}
-                                labelFormatter={(h) => `UTC ${h}:00`}
-                            />
-                            <Line type="monotone" dataKey="commits" name="提交量" stroke="#10b981" strokeWidth={3} dot={{ stroke: '#10b981', strokeWidth: 2, r: 4 }} activeDot={{ r: 8 }} />
-                        </LineChart>
-                    </ResponsiveContainer>
-                </ChartCard>
-
-                {/* 3. Heatmap */}
-                <ChartCard title="协作脉冲热力图 (Activity Pulse)" icon={Calendar} subtitle="UTC 时间周视图：识别跨时区协作模式" className="h-[280px]">
-                     <ActivityHeatmap data={data.heatmapData} />
-                </ChartCard>
-            </div>
-
-            {/* Right Column (Details) - 4 Cols */}
-            <div className="xl:col-span-4 flex flex-col gap-6">
-                
-                {/* 1. Globalization Radar */}
-                <ChartCard title="全球化健康雷达" icon={Target} subtitle="五维诊断模型" className="h-[350px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <RadarChart cx="50%" cy="50%" outerRadius="70%" data={data.radarData}>
-                            <PolarGrid stroke="#374151" />
-                            <PolarAngleAxis dataKey="subject" tick={{ fill: '#9CA3AF', fontSize: 12 }} />
-                            <PolarRadiusAxis angle={30} domain={[0, 150]} tick={false} axisLine={false} />
-                            <Radar
-                                name={selectedProject}
-                                dataKey="A"
-                                stroke={RADAR_COLOR}
-                                strokeWidth={2}
-                                fill={RADAR_COLOR}
-                                fillOpacity={0.3}
-                            />
-                            <Tooltip 
-                                contentStyle={{ backgroundColor: '#111827', border: 'none', borderRadius: '8px' }}
-                                itemStyle={{ color: RADAR_COLOR }}
-                            />
-                        </RadarChart>
-                    </ResponsiveContainer>
-                </ChartCard>
-
-                {/* 2. Contributor Leaderboard */}
-                <ChartCard title="核心贡献者名人堂" icon={Award} subtitle="Top Contributors" className="flex-1 min-h-[300px]">
-                    <div className="overflow-y-auto pr-2 custom-scrollbar max-h-[300px]">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="text-xs text-gray-500 border-b border-gray-700">
-                                    <th className="py-2 font-medium">Rank</th>
-                                    <th className="py-2 font-medium">User</th>
-                                    <th className="py-2 font-medium">Region</th>
-                                    <th className="py-2 font-medium text-right">Commits</th>
+            {/* 5. Globalization Radar (1 列) */}
+            <ChartCard title="全球化健康雷达" icon={Target} subtitle="五维诊断模型" className="h-[400px]">
+                <ResponsiveContainer width="100%" height="100%">
+                    <RadarChart cx="50%" cy="50%" outerRadius="70%" data={data.radarData}>
+                        <PolarGrid stroke="#374151" />
+                        <PolarAngleAxis dataKey="subject" tick={{ fill: '#9CA3AF', fontSize: 12 }} />
+                        <PolarRadiusAxis angle={30} domain={[0, 150]} tick={false} axisLine={false} />
+                        <Radar
+                            name={selectedProject}
+                            dataKey="A"
+                            stroke={RADAR_COLOR}
+                            strokeWidth={2}
+                            fill={RADAR_COLOR}
+                            fillOpacity={0.3}
+                        />
+                        <Tooltip 
+                            contentStyle={{ backgroundColor: '#111827', border: 'none', borderRadius: '8px' }}
+                            itemStyle={{ color: RADAR_COLOR }}
+                        />
+                    </RadarChart>
+                </ResponsiveContainer>
+            </ChartCard>
+            
+            {/* 6. Heatmap (跨越 2 列) */}
+            <ChartCard title="协作脉冲热力图 (Activity Pulse)" icon={Calendar} subtitle="UTC 时间周视图：识别跨时区协作模式" className="xl:col-span-2 h-[350px]">
+                 <ActivityHeatmap data={data.heatmapData} />
+            </ChartCard>
+            
+            {/* 7. Contributor Leaderboard (1 列) */}
+            <ChartCard title="核心贡献者名人堂" icon={Award} subtitle="Top Contributors" className="h-[350px]">
+                <div className="overflow-y-auto pr-2 custom-scrollbar max-h-[280px]">
+                    <table className="w-full text-left border-collapse">
+                        <thead>
+                            <tr className="text-xs text-gray-500 border-b border-gray-700">
+                                <th className="py-2 font-medium">排名</th>
+                                <th className="py-2 font-medium">用户</th>
+                                <th className="py-2 font-medium">地区</th>
+                                <th className="py-2 font-medium text-right">提交量</th>
+                            </tr>
+                        </thead>
+                        <tbody className="text-sm">
+                            {data.topContributors.map((user, idx) => (
+                                <tr key={user.id} className="group hover:bg-gray-700/30 transition-colors border-b border-gray-800/50 last:border-0">
+                                    <td className="py-3">
+                                        <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold 
+                                            ${idx === 0 ? 'bg-yellow-500/20 text-yellow-400' : 
+                                              idx === 1 ? 'bg-gray-400/20 text-gray-300' : 
+                                              idx === 2 ? 'bg-orange-700/20 text-orange-400' : 'text-gray-600'}`}>
+                                            {idx + 1}
+                                        </span>
+                                    </td>
+                                    <td className="py-3 font-medium text-gray-300 group-hover:text-white">{user.name}</td>
+                                    <td className="py-3">
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-gray-800 border border-gray-700 text-gray-400">
+                                            {user.location}
+                                        </span>
+                                    </td>
+                                    <td className="py-3 text-right font-mono text-cyan-400">{user.count}</td>
                                 </tr>
-                            </thead>
-                            <tbody className="text-sm">
-                                {data.topContributors.map((user, idx) => (
-                                    <tr key={user.id} className="group hover:bg-gray-700/30 transition-colors border-b border-gray-800/50 last:border-0">
-                                        <td className="py-3">
-                                            <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold 
-                                                ${idx === 0 ? 'bg-yellow-500/20 text-yellow-400' : 
-                                                  idx === 1 ? 'bg-gray-400/20 text-gray-300' : 
-                                                  idx === 2 ? 'bg-orange-700/20 text-orange-400' : 'text-gray-600'}`}>
-                                                {idx + 1}
-                                            </span>
-                                        </td>
-                                        <td className="py-3 font-medium text-gray-300 group-hover:text-white">{user.name}</td>
-                                        <td className="py-3">
-                                            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-gray-800 border border-gray-700 text-gray-400">
-                                                {user.location}
-                                            </span>
-                                        </td>
-                                        <td className="py-3 text-right font-mono text-cyan-400">{user.count}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </ChartCard>
-            </div>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </ChartCard>
         </div>
 
-        {/* Row 4: AI Insight (Full Width) */}
-        <InsightGenerator 
-            data={data} 
-            selectedProject={selectedProject} 
-            onGenerate={generateInsight} 
-            loading={insightLoading} 
-            insightText={insightText} 
-        />
+        {/* Row 4: AI Insight (Full Width, 3列跨度) */}
+        <div className="xl:col-span-3">
+            <InsightGenerator 
+                data={data} 
+                selectedProject={selectedProject} 
+                onGenerate={generateInsight} 
+                loading={insightLoading} 
+                insightText={insightText} 
+            />
+        </div>
       </main>
     </div>
   );

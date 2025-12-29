@@ -288,6 +288,15 @@ def remove_duplicates(df, subset_columns):
         logging.error(f"去重时发生错误：{e}")
         raise e
 
+def filter_data(df, column_name, condition_value):
+    """根据指定列的条件筛选 DataFrame 数据"""
+    try:
+        filtered_df = df[df[column_name] == condition_value]
+        logging.info(f"数据过滤完成，筛选条件: {column_name} = {condition_value}")
+        return filtered_df
+    except Exception as e:
+        logging.error(f"数据过滤时发生错误：{e}")
+        raise e
 
 
 

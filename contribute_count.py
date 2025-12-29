@@ -398,6 +398,23 @@ def filter_by_keywords(df, keyword_dict):
     except Exception as e:
         logging.error(f"根据关键词过滤仓库时发生错误：{e}")
         raise e
+        
+def generate_markdown_report(df, report_file='repositories_report.md'):
+    """生成仓库信息的 Markdown 格式报告"""
+    try:
+        with open(report_file, 'w') as f:
+            f.write("# 仓库信息报告\n\n")
+            for _, row in df.iterrows():
+                f.write(f"## {row['repo_name']}\n")
+                f.write(f"**描述**: {row['description']}\n")
+                f.write(f"**语言**: {row['primary_language']}\n")
+                f.write(f"**许可证**: {row['license']}\n")
+                f.write(f"**主题**: {row['topics']}\n")
+                f.write("\n---\n")
+        logging.info(f"Markdown 格式的报告已保存为: {report_file}")
+    except Exception as e:
+        logging.error(f"生成 Markdown 报告时发生错误：{e}")
+        raise e
 
 
 if __name__ == "__main__":

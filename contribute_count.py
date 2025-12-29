@@ -1,54 +1,85 @@
 import pandas as pd
-import numpy as np
+import clickhouse_connect
+import time
+import logging
 
-# 定义文件路径
-excel_file = 'item_with_openrank.xlsx'  # 请替换为你的Excel文件名
-sheet_name = 'Sheet3' # 请替换为包含数据的实际工作表名称
+# 数据库连接配置
+CLIENT_CONFIG = {
+}
 
-# 尝试读取 Excel 文件中的 R 列
-try:
-    df = pd.read_excel(excel_file, sheet_name=sheet_name)
-except FileNotFoundError:
-    print(f"错误：未找到文件 {excel_file}。请确保文件和脚本在同一目录下。")
-    exit()
-except ValueError:
-    print(f"错误：未找到名为 '{sheet_name}' 的工作表。请检查工作表名称是否正确。")
-    exit()
+# Excel 文件名和列索引配置
+excel_file_path = 'item.xlsx'
+b_column_index = 1
+start_column_index = 4
 
-# 获取 R 列的数据，列头为 'github_contributors_count'
-if 'github_contributors_count' in df.columns:
-    contributor_counts = df['github_contributors_count']
-else:
-    # 如果没有找到指定列名，使用列索引 R (第18列，索引为17)
-    print("警告：未找到 'github_contributors_count' 列，将使用第18列 (索引17)。")
-    contributor_counts = df.iloc[:, 17]
+# SQL 查询模板
+SQL_TEMPLATE = """
+SELECT
+    t2.description,
+    t2.primary_language,
+    t2.license,
+    t2.topics
+FROM
+    opensource.events AS t1
+LEFT JOIN
+    opensource.gh_repo_info AS t2
+    ON t1.repo_id = t2.id
+WHERE
+    t1.repo_name = '{}'
+LIMIT 1
+"""
 
-# 定义你指定的五个区间
-bins = [50, 200, 500, 1000, 5000, np.inf]
-labels = ['50-200', '200-500', '500-1000', '1000-5000', '>5000']
+# 设置日志配置
+logging.basicConfig(filename='query_log.log', level=logging.INFO, 
+                    format='%(asctime)s - %(message)s')
+error_log = logging.getLogger('error_log')
+error_log.setLevel(logging.ERROR)
 
-# 使用 cut 函数将贡献者数量分桶
-# right=False 表示左闭右开区间，例如 [50, 200)
-binned_counts = pd.cut(contributor_counts, bins=bins, labels=labels, right=False)
+def connect_to_db():
+    """连接到 ClickHouse 数据库"""
+    try:
+        client = clickhouse_connect.get_client(**CLIENT_CONFIG)
+        logging.info("数据库连接成功。")
+        return client
+    except Exception as e:
+        logging.error(f"数据库连接失败: {e}")
+        raise e
 
-# 统计每个区间中的项目数量
-interval_counts = binned_counts.value_counts().sort_index()
 
-# 计算每个区间的项目占比
-total_projects = len(contributor_counts)
-interval_percentages = (interval_counts / total_projects) * 100
 
-# 将结果合并到一个 DataFrame
-summary_df = pd.DataFrame({
-    '项目数量': interval_counts,
-    '占比 (%)': interval_percentages
-})
+def main():
+    """主函数，执行整个流程"""
+    try:
+        client = connect_to_db()  # 连接数据库
+        df, repo_names = read_excel_data(excel_file_path)  # 读取 Excel 文件
+        
+        logging.info("开始处理仓库列表...")
 
-# 打印结果
-print("\n项目贡献者数量分段统计结果：")
-print(summary_df)
+        # 3. 遍历每个项目名并执行查询
+        for index, repo_name in enumerate(repo_names):
+            # 忽略空值或无效值
+            if not repo_name or repo_name.lower() == 'nan':
+                continue
 
-# 将结果保存到新的 Excel 文件
-output_file = 'contributors_summary.xlsx'
-summary_df.to_excel(output_file)
-print(f"\n结果已保存到 {output_file} 文件中。")
+            result = execute_query(client, repo_name)  # 执行查询
+
+            if result:
+                process_query_result(result, repo_name, df, index)  # 处理查询结果
+            else:
+                df.iloc[index + 1, start_column_index:start_column_index+4] = ['查询失败'] * 4
+
+        # 4. 保存修改后的 DataFrame 到原始 Excel 文件
+        save_to_excel(df, excel_file_path)  # 保存结果到 Excel
+
+        print("\n程序执行完毕！")
+
+    except Exception as e:
+        logging.error(f"程序执行失败：{e}")
+
+    finally:
+        if 'client' in locals() and client.is_connected():
+            client.close()
+
+
+if __name__ == "__main__":
+    main()

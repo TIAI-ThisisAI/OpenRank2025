@@ -63,25 +63,29 @@ def read_excel_data(excel_path):
         logging.error(f"读取 Excel 文件时发生错误：{e}")
         raise e
 
-def execute_query(client, repo_name):
-    """执行 SQL 查询并返回结果"""
+def execute_query(client, repo_name, retry=3):
+    """执行 SQL 查询并返回结果，支持重试机制"""
     safe_repo_name = repo_name.strip().replace("'", "''")
     query = SQL_TEMPLATE.format(safe_repo_name)
     
     # 记录查询开始时间
     query_start_time = time.time()
     
-    try:
-        result = client.query(query)
-        # 记录查询结束时间并计算时间差
-        query_end_time = time.time()
-        query_duration = query_end_time - query_start_time
-        logging.info(f"查询 {repo_name} 完成，用时 {query_duration:.2f} 秒。")
-        
-        return result
-    except Exception as e:
-        logging.error(f"查询 {repo_name} 时发生错误：{e}")
-        return None
+    for attempt in range(retry):
+        try:
+            result = client.query(query)
+            # 记录查询结束时间并计算时间差
+            query_end_time = time.time()
+            query_duration = query_end_time - query_start_time
+            logging.info(f"查询 {repo_name} 完成，用时 {query_duration:.2f} 秒。")
+            return result
+        except Exception as e:
+            logging.warning(f"查询 {repo_name} 第 {attempt+1} 次尝试失败，错误：{e}")
+            if attempt < retry - 1:
+                sleep(2)  # 暂停 2 秒后重试
+            else:
+                logging.error(f"查询 {repo_name} 最终失败，错误：{e}")
+                return None
 
 def process_query_result(result, repo_name, df, index):
     """处理查询结果并将数据写入 DataFrame"""

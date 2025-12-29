@@ -231,6 +231,23 @@ def analyze_query_results(df):
     except Exception as e:
         logging.error(f"分析查询结果时发生错误：{e}")
         raise e
+        
+def build_dynamic_sql_query(repo_name, fields=["description", "primary_language", "license", "topics"]):
+    """构建动态 SQL 查询，支持查询不同字段"""
+    fields_str = ", ".join(fields)
+    query = f"""
+    SELECT
+        {fields_str}
+    FROM
+        opensource.events AS t1
+    LEFT JOIN
+        opensource.gh_repo_info AS t2
+        ON t1.repo_id = t2.id
+    WHERE
+        t1.repo_name = '{repo_name}'
+    LIMIT 1
+    """
+    return query
 
 
 if __name__ == "__main__":

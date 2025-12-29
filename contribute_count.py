@@ -388,6 +388,17 @@ def generate_contributors_report(df):
         logging.error(f"生成贡献者统计报告时发生错误：{e}")
         raise e
 
+def filter_by_keywords(df, keyword_dict):
+    """根据关键词过滤 DataFrame 中的仓库"""
+    try:
+        query = " & ".join([f"({column} == '{value}')" for column, value in keyword_dict.items()])
+        filtered_df = df.query(query)
+        logging.info(f"根据关键词过滤仓库完成，筛选条件: {keyword_dict}")
+        return filtered_df
+    except Exception as e:
+        logging.error(f"根据关键词过滤仓库时发生错误：{e}")
+        raise e
+
 
 if __name__ == "__main__":
     main()

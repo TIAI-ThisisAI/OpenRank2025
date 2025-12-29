@@ -278,6 +278,16 @@ def update_incrementally(df, new_data):
         logging.error(f"增量更新数据时发生错误：{e}")
         raise e
 
+def remove_duplicates(df, subset_columns):
+    """去除 DataFrame 中指定列的重复项"""
+    try:
+        df_cleaned = df.drop_duplicates(subset=subset_columns)
+        logging.info("数据去重完成。")
+        return df_cleaned
+    except Exception as e:
+        logging.error(f"去重时发生错误：{e}")
+        raise e
+
 
 
 

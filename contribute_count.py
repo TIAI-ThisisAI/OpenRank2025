@@ -217,6 +217,20 @@ def save_to_csv(df, csv_file_path):
     except Exception as e:
         logging.error(f"保存 CSV 文件时发生错误：{e}")
         raise e
+def analyze_query_results(df):
+    """对查询结果进行统计分析，计算各仓库的 OpenRank 平均值、最大值、最小值"""
+    try:
+        # 假设 OpenRank 数据在 DataFrame 的某一列中，这里以第4列为例
+        openrank_column = df.iloc[:, start_column_index:start_column_index + 1]
+        mean_value = openrank_column.mean()
+        max_value = openrank_column.max()
+        min_value = openrank_column.min()
+
+        logging.info(f"OpenRank 平均值: {mean_value}, 最大值: {max_value}, 最小值: {min_value}")
+        return mean_value, max_value, min_value
+    except Exception as e:
+        logging.error(f"分析查询结果时发生错误：{e}")
+        raise e
 
 
 if __name__ == "__main__":

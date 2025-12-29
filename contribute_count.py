@@ -45,7 +45,19 @@ def connect_to_db():
         logging.error(f"数据库连接失败: {e}")
         raise e
 
-
+def read_excel_data(excel_path):
+    """读取 Excel 文件并返回项目名列表"""
+    try:
+        df = pd.read_excel(excel_path, sheet_name=0, header=None)
+        repo_names = df.iloc[1:, b_column_index].astype(str).tolist()
+        logging.info(f"成功读取 Excel 文件 {excel_path}。")
+        return df, repo_names
+    except FileNotFoundError:
+        logging.error(f"错误：未找到文件 '{excel_path}'。")
+        raise FileNotFoundError(f"未找到文件 '{excel_path}'。")
+    except Exception as e:
+        logging.error(f"读取 Excel 文件时发生错误：{e}")
+        raise e
 
 def main():
     """主函数，执行整个流程"""

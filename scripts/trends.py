@@ -1,45 +1,13 @@
-import pandas as pd
-import clickhouse_connect
-import math
+import matplotlib.pyplot as plt
+import seaborn as sns
+import time
+import logging
 
-# 数据库连接配置
-client = clickhouse_connect.get_client(
-)
+# 设置日志配置
+logging.basicConfig(filename='query_errors.log', level=logging.ERROR)
 
-# 定义要查询的仓库列表
-# 将您的地址转换为 owner/repo 格式
-repos_to_query = [
-    'kubernetes/kubernetes',
-    'ceph/ceph',
-    'cilium/cilium',
-    'keycloak/keycloak',
-    'gravitational/teleport'
-]
-
-print("开始查询以下仓库的 OpenRank 数据：")
-for repo in repos_to_query:
-    print(f"- {repo}")
-
-# 构建 SQL 查询，使用 IN 子句一次性查询所有仓库
-repo_names_str = ', '.join([f"'{r}'" for r in repos_to_query])
-
-sql_query = f"""
-SELECT
-  repo_name,
-  DATE_TRUNC('month', created_at) AS month,
-  TRUNCATE(AVG(openrank), 4) AS monthly_avg_openrank
-FROM
-  opensource.global_openrank
-WHERE
-  repo_name IN ({repo_names_str})
-  AND created_at >= toStartOfMonth(subtractMonths(now(), 13))
-GROUP BY
-  repo_name,
-  month
-ORDER BY
-  repo_name,
-  month DESC
-"""
+# 计算查询执行时间
+start_time = time.time()
 
 try:
     print("\n正在执行数据库查询...")
@@ -70,9 +38,29 @@ try:
         df_pivot.to_excel(output_file_path)
         print("\n查询成功！")
         print(f"结果已保存到新的 Excel 文件: {output_file_path}")
+        
+        # 可视化数据（热力图）
+        plt.figure(figsize=(10, 6))
+        sns.heatmap(df_pivot, annot=True, cmap="YlGnBu", fmt=".4f", linewidths=0.5)
+        plt.title('Monthly Average OpenRank of Repositories')
+        plt.ylabel('Repository Name')
+        plt.xlabel('Month')
+        plt.tight_layout()
+
+        # 保存热力图为文件
+        heatmap_file_path = 'openrank_heatmap.png'
+        plt.savefig(heatmap_file_path)
+        print(f"热力图已保存为: {heatmap_file_path}")
+        
     else:
         print("\n查询完成，但未找到任何数据。")
 
 except Exception as e:
     print("\n查询失败，请检查数据库连接或 SQL 语句。")
     print(f"错误信息：{e}")
+    logging.error(f"查询失败: {str(e)}")
+
+# 计算查询时间
+end_time = time.time()
+execution_time = end_time - start_time
+print(f"\n查询执行时间: {execution_time:.2f} 秒")

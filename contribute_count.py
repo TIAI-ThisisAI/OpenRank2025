@@ -336,6 +336,21 @@ def run_scheduled_task(job_function, interval_minutes=60):
         schedule.run_pending()
         time.sleep(1)
 
+def batch_update_repository_info(df, updates):
+    """批量更新 DataFrame 中仓库的信息"""
+    try:
+        for repo_name, update_values in updates.items():
+            if repo_name in df['repo_name'].values:
+                df.loc[df['repo_name'] == repo_name, ['description', 'primary_language', 'license', 'topics']] = update_values
+                logging.info(f"更新仓库 {repo_name} 的信息。")
+            else:
+                logging.warning(f"仓库 {repo_name} 不在 DataFrame 中，跳过更新。")
+        return df
+    except Exception as e:
+        logging.error(f"批量更新仓库信息时发生错误：{e}")
+        raise e
+
+
 
 
 if __name__ == "__main__":

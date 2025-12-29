@@ -87,6 +87,23 @@ def execute_query(client, repo_name, retry=3):
             else:
                 logging.error(f"查询 {repo_name} 最终失败，错误：{e}")
                 return None
+            import concurrent.futures
+
+def parallel_query_execution(client, repo_names):
+    """并行执行多个仓库的查询"""
+    results = []
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_to_repo = {executor.submit(execute_query, client, repo_name): repo_name for repo_name in repo_names}
+        for future in concurrent.futures.as_completed(future_to_repo):
+            repo_name = future_to_repo[future]
+            try:
+                result = future.result()
+                results.append((repo_name, result))
+            except Exception as e:
+                logging.error(f"查询 {repo_name} 失败: {e}")
+                results.append((repo_name, None))
+    return results
+
 
 def process_query_result(result, repo_name, df, index):
     """处理查询结果并将数据写入 DataFrame"""

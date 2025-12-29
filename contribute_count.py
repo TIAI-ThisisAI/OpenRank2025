@@ -2,6 +2,10 @@ import pandas as pd
 import clickhouse_connect
 import time
 import logging
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from time import sleep
 
 # 数据库连接配置
 CLIENT_CONFIG = {
@@ -135,6 +139,32 @@ def save_to_excel(df, excel_path):
         logging.info(f"结果已成功写入 Excel 文件: {excel_path}")
     except Exception as e:
         logging.error(f"保存 Excel 文件时发生错误：{e}")
+        raise e
+
+
+def send_email(subject, body, to_email):
+    """发送邮件通知"""
+    from_email = "your_email@example.com"  # 发送方邮箱
+    from_password = "your_email_password"  # 发送方邮箱密码
+    smtp_server = "smtp.example.com"  # 邮件服务器（例如Gmail的SMTP服务器）
+
+    msg = MIMEMultipart()
+    msg['From'] = from_email
+    msg['To'] = to_email
+    msg['Subject'] = subject
+
+    msg.attach(MIMEText(body, 'plain'))
+
+    try:
+        server = smtplib.SMTP(smtp_server, 587)
+        server.starttls()
+        server.login(from_email, from_password)
+        text = msg.as_string()
+        server.sendmail(from_email, to_email, text)
+        server.quit()
+        logging.info(f"成功发送邮件通知至 {to_email}")
+    except Exception as e:
+        logging.error(f"发送邮件失败: {e}")
         raise e
 
 if __name__ == "__main__":

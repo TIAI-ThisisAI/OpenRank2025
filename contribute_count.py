@@ -79,6 +79,21 @@ def execute_query(client, repo_name):
         logging.error(f"查询 {repo_name} 时发生错误：{e}")
         return None
 
+def process_query_result(result, repo_name, df, index):
+    """处理查询结果并将数据写入 DataFrame"""
+    if result.row_count > 0:
+        description, primary_language, license, topics = result.first_row
+        logging.info(f"处理 {repo_name} - 成功获取数据。")
+
+        # 将结果写入DataFrame的对应位置
+        df.iloc[index + 1, start_column_index] = description
+        df.iloc[index + 1, start_column_index + 1] = primary_language
+        df.iloc[index + 1, start_column_index + 2] = license
+        df.iloc[index + 1, start_column_index + 3] = topics
+    else:
+        logging.warning(f"处理 {repo_name} - 未找到匹配数据。")
+        df.iloc[index + 1, start_column_index:start_column_index+4] = [None] * 4
+
 def main():
     """主函数，执行整个流程"""
     try:

@@ -360,6 +360,14 @@ def merge_dataframes(dfs):
         logging.error(f"合并 DataFrame 时发生错误：{e}")
         raise e
 
+def save_to_json(df, json_file_path):
+    """将处理后的 DataFrame 保存为 JSON 文件"""
+    try:
+        df.to_json(json_file_path, orient='records', lines=True, force_ascii=False)
+        logging.info(f"结果已成功写入 JSON 文件: {json_file_path}")
+    except Exception as e:
+        logging.error(f"保存 JSON 文件时发生错误：{e}")
+        raise e
 
 
 

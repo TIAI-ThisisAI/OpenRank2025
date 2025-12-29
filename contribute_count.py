@@ -209,5 +209,15 @@ def send_email(subject, body, to_email):
         logging.error(f"发送邮件失败: {e}")
         raise e
 
+def save_to_csv(df, csv_file_path):
+    """将处理后的 DataFrame 保存到 CSV 文件"""
+    try:
+        df.to_csv(csv_file_path, index=False, header=False, encoding='utf-8')
+        logging.info(f"结果已成功写入 CSV 文件: {csv_file_path}")
+    except Exception as e:
+        logging.error(f"保存 CSV 文件时发生错误：{e}")
+        raise e
+
+
 if __name__ == "__main__":
     main()

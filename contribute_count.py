@@ -369,6 +369,24 @@ def save_to_json(df, json_file_path):
         logging.error(f"保存 JSON 文件时发生错误：{e}")
         raise e
 
+def generate_contributors_report(df):
+    """生成仓库贡献者统计报告"""
+    try:
+        # 假设贡献者信息存储在 `contributors` 列中，并且数据格式是列表
+        contributor_count = df['contributors'].apply(lambda x: len(eval(x)) if x else 0)
+        df['contributor_count'] = contributor_count
+
+        # 生成报告
+        report = df[['repo_name', 'contributor_count']]
+        report = report.sort_values(by='contributor_count', ascending=False)
+
+        # 保存报告
+        report_file = 'contributors_report.csv'
+        report.to_csv(report_file, index=False)
+        logging.info(f"贡献者统计报告已保存为: {report_file}")
+    except Exception as e:
+        logging.error(f"生成贡献者统计报告时发生错误：{e}")
+        raise e
 
 
 if __name__ == "__main__":

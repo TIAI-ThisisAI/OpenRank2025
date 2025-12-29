@@ -349,6 +349,16 @@ def batch_update_repository_info(df, updates):
     except Exception as e:
         logging.error(f"批量更新仓库信息时发生错误：{e}")
         raise e
+        
+def merge_dataframes(dfs):
+    """合并多个 DataFrame"""
+    try:
+        merged_df = pd.concat(dfs, ignore_index=True)
+        logging.info("DataFrame 合并完成。")
+        return merged_df
+    except Exception as e:
+        logging.error(f"合并 DataFrame 时发生错误：{e}")
+        raise e
 
 
 

@@ -261,6 +261,34 @@ def generate_error_report(failed_repos, error_report_path):
         logging.error(f"生成错误报告时发生错误：{e}")
         raise e
 
+def update_incrementally(df, new_data):
+    """根据新数据更新 DataFrame（增量更新）"""
+    try:
+        for index, row in new_data.iterrows():
+            repo_name = row['repo_name']
+            if repo_name in df['repo_name'].values:
+                # 只更新已有仓库的行
+                df.loc[df['repo_name'] == repo_name, ['description', 'primary_language', 'license', 'topics']] = row[['description', 'primary_language', 'license', 'topics']].values
+            else:
+                # 如果仓库不存在，则添加新行
+                df = df.append(row, ignore_index=True)
+        logging.info("增量数据更新完成。")
+        return df
+    except Exception as e:
+        logging.error(f"增量更新数据时发生错误：{e}")
+        raise e
+
+def remove_duplicates(df, subset_columns):
+    """去除 DataFrame 中指定列的重复项"""
+    try:
+        df_cleaned = df.drop_duplicates(subset=subset_columns)
+        logging.info("数据去重完成。")
+        return df_cleaned
+    except Exception as e:
+        logging.error(f"去重时发生错误：{e}")
+        raise e
+
+
 
 
 if __name__ == "__main__":

@@ -7,6 +7,8 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from time import sleep
 import requests
+import schedule
+import time
 
 # 数据库连接配置
 CLIENT_CONFIG = {
@@ -323,6 +325,17 @@ def plot_bar_chart(df, column_name, title="OpenRank 分布图", xlabel="仓库�
     except Exception as e:
         logging.error(f"绘制图表时发生错误：{e}")
         raise e
+
+
+def run_scheduled_task(job_function, interval_minutes=60):
+    """定时任务调度，每隔指定分钟执行一次任务"""
+    schedule.every(interval_minutes).minutes.do(job_function)
+    logging.info(f"任务已设置为每 {interval_minutes} 分钟执行一次。")
+
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
+
 
 
 if __name__ == "__main__":

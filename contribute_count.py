@@ -142,39 +142,6 @@ def send_slack_notification(message, webhook_url):
     except requests.exceptions.RequestException as e:
         logging.error(f"发送 Slack 通知失败: {e}")
 
-def main():
-    """主函数，执行整个流程"""
-    try:
-        client = connect_to_db()  # 连接数据库
-        df, repo_names = read_excel_data(excel_file_path)  # 读取 Excel 文件
-        
-        logging.info("开始处理仓库列表...")
-
-        # 3. 遍历每个项目名并执行查询
-        for index, repo_name in enumerate(repo_names):
-            # 忽略空值或无效值
-            if not repo_name or repo_name.lower() == 'nan':
-                continue
-
-            result = execute_query(client, repo_name)  # 执行查询
-
-            if result:
-                process_query_result(result, repo_name, df, index)  # 处理查询结果
-            else:
-                df.iloc[index + 1, start_column_index:start_column_index+4] = ['查询失败'] * 4
-
-        # 4. 保存修改后的 DataFrame 到原始 Excel 文件
-        save_to_excel(df, excel_file_path)  # 保存结果到 Excel
-
-        print("\n程序执行完毕！")
-
-    except Exception as e:
-        logging.error(f"程序执行失败：{e}")
-
-    finally:
-        if 'client' in locals() and client.is_connected():
-            client.close()
-
 def save_to_excel(df, excel_path):
     """将处理后的 DataFrame 保存到 Excel 文件"""
     try:
@@ -416,6 +383,38 @@ def generate_markdown_report(df, report_file='repositories_report.md'):
         logging.error(f"生成 Markdown 报告时发生错误：{e}")
         raise e
 
+def main():
+    """主函数，执行整个流程"""
+    try:
+        client = connect_to_db()  # 连接数据库
+        df, repo_names = read_excel_data(excel_file_path)  # 读取 Excel 文件
+        
+        logging.info("开始处理仓库列表...")
 
+        # 3. 遍历每个项目名并执行查询
+        for index, repo_name in enumerate(repo_names):
+            # 忽略空值或无效值
+            if not repo_name or repo_name.lower() == 'nan':
+                continue
+
+            result = execute_query(client, repo_name)  # 执行查询
+
+            if result:
+                process_query_result(result, repo_name, df, index)  # 处理查询结果
+            else:
+                df.iloc[index + 1, start_column_index:start_column_index+4] = ['查询失败'] * 4
+
+        # 4. 保存修改后的 DataFrame 到原始 Excel 文件
+        save_to_excel(df, excel_file_path)  # 保存结果到 Excel
+
+        print("\n程序执行完毕！")
+
+    except Exception as e:
+        logging.error(f"程序执行失败：{e}")
+
+    finally:
+        if 'client' in locals() and client.is_connected():
+            client.close()
+            
 if __name__ == "__main__":
     main()

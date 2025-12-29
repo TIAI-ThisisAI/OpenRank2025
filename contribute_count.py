@@ -6,6 +6,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from time import sleep
+import requests
 
 # 数据库连接配置
 CLIENT_CONFIG = {
@@ -110,6 +111,17 @@ def clean_and_format_result(result):
         return cleaned_result
     return ["无数据"] * 4
 
+def send_slack_notification(message, webhook_url):
+    """通过 Slack Webhook 发送通知"""
+    payload = {
+        "text": message
+    }
+    try:
+        response = requests.post(webhook_url, json=payload)
+        response.raise_for_status()
+        logging.info("成功发送 Slack 通知。")
+    except requests.exceptions.RequestException as e:
+        logging.error(f"发送 Slack 通知失败: {e}")
 
 def main():
     """主函数，执行整个流程"""

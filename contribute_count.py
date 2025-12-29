@@ -127,6 +127,15 @@ def main():
         if 'client' in locals() and client.is_connected():
             client.close()
 
+def save_to_excel(df, excel_path):
+    """将处理后的 DataFrame 保存到 Excel 文件"""
+    try:
+        with pd.ExcelWriter(excel_path, engine='openpyxl', mode='w') as writer:
+            df.to_excel(writer, index=False, header=False)
+        logging.info(f"结果已成功写入 Excel 文件: {excel_path}")
+    except Exception as e:
+        logging.error(f"保存 Excel 文件时发生错误：{e}")
+        raise e
 
 if __name__ == "__main__":
     main()

@@ -1,372 +1,313 @@
 # -*- coding: utf-8 -*-
-import requests
+import asyncio
 import json
-import time
+import logging
+import math
+import os
 import sys
+import time
 import random
 import argparse
+from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass, asdict
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional, Set, Tuple
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from contextlib import contextmanager
-from functools import lru_cache
 
-# --- 配置类（替代硬编码常量）---
-@dataclass(frozen=True)
-class Config:
-    """配置类，集中管理所有配置项"""
-    github_api_base: str = "https://api.github.com"
-    github_token: str = ""
-    per_page: int = 100
-    days_to_fetch: int = 90
-    rate_limit_sleep: float = 1.0
-    max_retries: int = 3
-    retry_delay: float = 2.0
+# 第三方库依赖
+try:
+    import aiohttp
+    from tqdm.asyncio import tqdm
+except ImportError:
+    print("错误: 缺少必要依赖库。请运行: pip install aiohttp tqdm")
+    sys.exit(1)
 
-# --- 数据结构定义（使用Dataclass增强类型安全）---
+# ======================== 配置与常量 ========================
+GITHUB_API_BASE = "https://api.github.com"
+DEFAULT_PER_PAGE = 100
+CACHE_FILE_NAME = "github_user_cache.json"
+
 @dataclass
-class OptimizedCommitData:
-    """优化后的提交数据结构"""
+class CommitData:
+    """标准化的提交数据结构"""
     timestamp_unix: int
     raw_location: str
-    location_iso3: str = "NEED_LLM_CLEANING"
     contributor_id: str
+    commit_sha: str
+    repo_name: str
+    # 预留字段，供下游 location_optimizer.py 填充
+    location_iso3: str = "NEED_CLEANING"
 
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
         return asdict(self)
 
-# --- 工具函数 ---
-@contextmanager
-def error_handler(operation: str, default: Any = None):
-    """通用错误处理上下文管理器"""
-    try:
-        yield
-    except Exception as e:
-        print(f"错误: {operation} 失败 - {str(e)}", file=sys.stderr)
-        return default
+class DiskCache:
+    """持久化缓存，用于存储不变的数据（如用户位置），节省API配额"""
+    def __init__(self, filepath: str):
+        self.filepath = filepath
+        self.data: Dict[str, str] = {}
+        self.loaded = False
 
-def setup_session(config: Config) -> requests.Session:
-    """创建并配置requests会话"""
-    session = requests.Session()
-    if config.github_token:
-        session.headers.update({
-            'Authorization': f'token {config.github_token}',
-            'Accept': 'application/vnd.github.v3+json',
-            'User-Agent': 'GitHub-Commit-Collector/1.0'
-        })
-    # 设置超时
-    session.timeout = 10
-    return session
+    def load(self):
+        if os.path.exists(self.filepath):
+            try:
+                with open(self.filepath, 'r', encoding='utf-8') as f:
+                    self.data = json.load(f)
+            except Exception as e:
+                logging.warning(f"加载缓存失败: {e}")
+        self.loaded = True
 
-def exponential_backoff(retry_num: int, base_delay: float = 2.0) -> float:
-    """指数退避算法"""
-    return base_delay * (2 ** retry_num) + random.uniform(0, 1)
-
-# --- API调用相关函数 ---
-def fetch_with_retry(
-    session: requests.Session,
-    url: str,
-    params: Optional[Dict[str, Any]] = None,
-    config: Config = Config()
-) -> Optional[Dict[str, Any]]:
-    """带重试机制的API请求"""
-    for retry in range(config.max_retries):
+    def save(self):
         try:
-            response = session.get(url, params=params)
-            
-            # 处理速率限制
-            if response.status_code == 403 and 'rate limit' in response.text.lower():
-                reset_time = int(response.headers.get('X-RateLimit-Reset', time.time() + 60))
-                sleep_time = max(reset_time - time.time(), 1)
-                print(f"警告: 触发GitHub速率限制，将等待 {sleep_time:.1f} 秒", file=sys.stderr)
-                time.sleep(sleep_time)
-                continue
-                
-            response.raise_for_status()
-            return response.json()
-            
-        except requests.exceptions.RequestException as e:
-            if retry < config.max_retries - 1:
-                sleep_time = exponential_backoff(retry, config.retry_delay)
-                print(f"警告: 请求失败 (重试 {retry+1}/{config.max_retries}) - {e}，将等待 {sleep_time:.1f} 秒", file=sys.stderr)
-                time.sleep(sleep_time)
-                continue
-            print(f"错误: 请求失败（已重试{config.max_retries}次）- {e}", file=sys.stderr)
-            return None
+            with open(self.filepath, 'w', encoding='utf-8') as f:
+                json.dump(self.data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logging.error(f"保存缓存失败: {e}")
 
-def fetch_paginated_data(
-    session: requests.Session,
-    base_url: str,
-    params: Dict[str, Any],
-    config: Config = Config()
-) -> List[Dict[str, Any]]:
-    """获取分页的GitHub API数据"""
-    all_data = []
-    page = 1
-    
-    while True:
-        params['page'] = page
-        data = fetch_with_retry(session, base_url, params, config)
+    def get(self, key: str) -> Optional[str]:
+        return self.data.get(key)
+
+    def set(self, key: str, value: str):
+        self.data[key] = value
+
+class GitHubCollector:
+    def __init__(self, token: str, cache_path: str = CACHE_FILE_NAME, concurrency: int = 10):
+        self.token = token
+        self.concurrency = concurrency
+        self.cache = DiskCache(cache_path)
+        self.cache.load()
         
-        if not data:
-            break
-            
-        all_data.extend(data)
-        
-        # 检查是否还有更多页面
-        if len(data) < config.per_page:
-            break
-            
-        page += 1
-        time.sleep(config.rate_limit_sleep)
-        
-    return all_data
+        # 配置日志
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(levelname)s - %(message)s",
+            handlers=[logging.StreamHandler(sys.stdout)]
+        )
+        self.logger = logging.getLogger("GitHubCollector")
 
-def fetch_github_commits_mock(owner: str, repo: str) -> List[Dict[str, Any]]:
-    """模拟GitHub提交数据获取"""
-    num_commits = random.randint(50, 150)
-    mock_users = {
-        "user_a": {"location": "San Francisco, CA"},
-        "user_b": {"location": "Beijing, China"},
-        "user_c": {"location": "Frankfurt"},
-        "user_d": {"location": "Planet Mars"},
-        "user_e": {"location": "India"}
-    }
-    user_logins = list(mock_users.keys())
-    mock_data = []
-
-    for i in range(num_commits):
-        login = random.choice(user_logins)
-        ts = int(time.time()) - random.randint(86400, 86400 * 30)
-        
-        mock_data.append({
-            "sha": f"mocksha{i}",
-            "author": {"login": login},
-            "commit": {
-                "author": {"date": datetime.fromtimestamp(ts).isoformat() + "Z"},
-                "message": f"feat: add feature {i}",
-            },
-            "raw_location": mock_users[login]["location"]
-        })
-        
-    return mock_data
-
-@lru_cache(maxsize=1000)
-def fetch_contributor_location_cached(
-    contributor_id: str,
-    session: requests.Session,
-    config: Config = Config()
-) -> str:
-    """获取贡献者位置（带缓存）"""
-    url = f"{config.github_api_base}/users/{contributor_id}"
-    user_data = fetch_with_retry(session, url, config=config)
-    return user_data.get('location', '') if user_data else ''
-
-# --- 核心转换逻辑 ---
-def parse_github_timestamp(timestamp_str: str) -> int:
-    """解析GitHub时间戳为Unix秒数"""
-    try:
-        dt_obj = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
-        return int(dt_obj.timestamp())
-    except (ValueError, AttributeError):
-        return 0
-
-def get_unique_contributors(raw_commits: List[Dict[str, Any]]) -> Set[str]:
-    """提取唯一贡献者ID"""
-    contributors = set()
-    for commit in raw_commits:
-        login = commit.get('author', {}).get('login')
-        if login:
-            contributors.add(login)
-    return contributors
-
-def collect_project_data(
-    project_full_name: str,
-    session: requests.Session,
-    config: Config,
-    is_mock: bool = True
-) -> List[OptimizedCommitData]:
-    """
-    从GitHub API获取项目提交数据并转换为优化结构
-    
-    Args:
-        project_full_name: 项目名称（owner/repo）
-        session: requests会话对象
-        config: 配置对象
-        is_mock: 是否使用模拟数据
-        
-    Returns:
-        优化后的提交数据列表
-    """
-    # 验证项目名称格式
-    parts = project_full_name.split('/')
-    if len(parts) != 2:
-        print(f"错误: 无效的项目名称格式 '{project_full_name}'", file=sys.stderr)
-        return []
-    owner, repo = parts
-
-    # 1. 获取提交数据
-    if is_mock:
-        raw_commits = fetch_github_commits_mock(owner, repo)
-    else:
-        url = f"{config.github_api_base}/repos/{owner}/{repo}/commits"
-        since_date = (datetime.now() - timedelta(days=config.days_to_fetch)).isoformat() + 'Z'
-        params = {
-            'per_page': config.per_page,
-            'since': since_date
+    def _get_headers(self) -> Dict[str, str]:
+        return {
+            "Authorization": f"token {self.token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "GitHub-Commit-Collector-Async/2.0"
         }
-        
-        print(f"-> 正在从 {project_full_name} 获取提交数据（最近{config.days_to_fetch}天）...")
-        raw_commits = fetch_paginated_data(session, url, params, config)
-    
-    if not raw_commits:
-        print(f"-> {project_full_name}: 未获取到提交数据", file=sys.stderr)
-        return []
 
-    print(f"-> {project_full_name}: 成功获取 {len(raw_commits)} 条提交记录")
-
-    # 2. 获取唯一贡献者及其位置
-    unique_contributors = get_unique_contributors(raw_commits)
-    print(f"-> {project_full_name}: 正在查询 {len(unique_contributors)} 个独特贡献者的位置...")
-    
-    contributor_locations: Dict[str, str] = {}
-    for user_id in unique_contributors:
-        if is_mock:
-            # 从模拟数据中获取位置
-            mock_loc = next(
-                (c.get('raw_location') for c in raw_commits 
-                 if c.get('author', {}).get('login') == user_id), 
-                ''
-            )
-            contributor_locations[user_id] = mock_loc
-        else:
-            # 真实模式下使用缓存获取位置
-            contributor_locations[user_id] = fetch_contributor_location_cached(
-                user_id, session, config
-            )
-            time.sleep(config.rate_limit_sleep / 2)  # 减轻API压力
-
-    # 3. 转换数据结构
-    optimized_data: List[OptimizedCommitData] = []
-    for commit in raw_commits:
-        author_data = commit.get('author', {})
-        commit_data = commit.get('commit', {})
+    async def _fetch(self, session: aiohttp.ClientSession, url: str, params: Dict = None) -> Any:
+        """通用请求函数，处理速率限制和重试"""
+        retry_delay = 1.0
+        max_retries = 5
         
-        contributor_id = author_data.get('login')
-        timestamp_str = commit_data.get('author', {}).get('date')
-        
-        if contributor_id and timestamp_str:
-            timestamp_unix = parse_github_timestamp(timestamp_str)
-            raw_location = contributor_locations.get(contributor_id, '')
+        for attempt in range(max_retries):
+            try:
+                async with session.get(url, headers=self._get_headers(), params=params) as response:
+                    # 处理速率限制
+                    if response.status == 403:
+                        rate_limit_remaining = response.headers.get('X-RateLimit-Remaining')
+                        if rate_limit_remaining == '0':
+                            reset_time = int(response.headers.get('X-RateLimit-Reset', 0))
+                            wait_time = max(reset_time - time.time(), 1) + 1
+                            self.logger.warning(f"触发API速率限制，暂停 {wait_time:.0f} 秒...")
+                            await asyncio.sleep(wait_time)
+                            continue
+
+                    if response.status != 200:
+                        # 404 表示用户或仓库不存在，无需重试
+                        if response.status == 404:
+                            return None
+                        response.raise_for_status()
+
+                    return await response.json()
             
-            optimized_data.append(OptimizedCommitData(
-                timestamp_unix=timestamp_unix,
-                raw_location=raw_location,
-                contributor_id=contributor_id
-            ))
-    
-    return optimized_data
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    sleep_time = retry_delay * (2 ** attempt) + random.uniform(0, 1)
+                    await asyncio.sleep(sleep_time)
+                else:
+                    self.logger.error(f"请求失败 {url}: {e}")
+                    return None
+        return None
 
-# --- 主程序 ---
+    async def fetch_user_location(self, session: aiohttp.ClientSession, username: str) -> str:
+        """获取用户位置（优先查缓存）"""
+        if not username:
+            return ""
+            
+        # 1. 查缓存
+        cached_loc = self.cache.get(username)
+        if cached_loc is not None:
+            return cached_loc
+
+        # 2. 查API
+        url = f"{GITHUB_API_BASE}/users/{username}"
+        user_data = await self._fetch(session, url)
+        
+        location = ""
+        if user_data:
+            location = user_data.get("location") or ""
+            # 清理换行符等
+            location = location.replace("\n", " ").strip()
+        
+        # 3. 写入缓存（即使为空也缓存，避免重复查询无效用户）
+        self.cache.set(username, location)
+        return location
+
+    async def collect_repo_commits(self, repo_full_name: str, days: int) -> List[CommitData]:
+        """收集单个仓库的提交数据"""
+        self.logger.info(f"开始处理项目: {repo_full_name}")
+        
+        since_date = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        url = f"{GITHUB_API_BASE}/repos/{repo_full_name}/commits"
+        
+        all_commits_raw = []
+        page = 1
+        
+        async with aiohttp.ClientSession() as session:
+            # 1. 获取所有提交列表 (分页)
+            while True:
+                params = {"per_page": DEFAULT_PER_PAGE, "page": page, "since": since_date}
+                self.logger.info(f"[{repo_full_name}] 获取提交列表第 {page} 页...")
+                
+                batch = await self._fetch(session, url, params)
+                if not batch:
+                    break
+                
+                all_commits_raw.extend(batch)
+                if len(batch) < DEFAULT_PER_PAGE:
+                    break
+                page += 1
+
+            self.logger.info(f"[{repo_full_name}] 共获取 {len(all_commits_raw)} 条提交记录，开始解析用户...")
+
+            # 2. 提取唯一作者并获取位置
+            unique_authors = set()
+            commits_with_author = []
+
+            for commit in all_commits_raw:
+                author = commit.get("author") # GitHub账号信息
+                if author and "login" in author:
+                    login = author["login"]
+                    unique_authors.add(login)
+                    commits_with_author.append({
+                        "login": login,
+                        "sha": commit["sha"],
+                        "date": commit["commit"]["author"]["date"]
+                    })
+
+            # 3. 并发获取用户位置
+            semaphore = asyncio.Semaphore(self.concurrency)
+            user_location_map = {}
+            
+            async def _bounded_fetch_user(username):
+                async with semaphore:
+                    loc = await self.fetch_user_location(session, username)
+                    user_location_map[username] = loc
+
+            # 使用 tqdm 显示用户解析进度
+            tasks = [_bounded_fetch_user(u) for u in unique_authors]
+            if tasks:
+                for f in tqdm.as_completed(tasks, desc=f"解析 {repo_full_name} 贡献者", total=len(tasks)):
+                    await f
+            
+            # 4. 组装最终数据
+            results = []
+            for item in commits_with_author:
+                ts_str = item["date"].replace("Z", "+00:00")
+                try:
+                    ts = int(datetime.fromisoformat(ts_str).timestamp())
+                except:
+                    ts = 0
+                
+                loc = user_location_map.get(item["login"], "")
+                
+                # 仅保留有位置信息的记录（可选策略）
+                if loc:
+                    results.append(CommitData(
+                        timestamp_unix=ts,
+                        raw_location=loc,
+                        contributor_id=item["login"],
+                        commit_sha=item["sha"],
+                        repo_name=repo_full_name
+                    ))
+
+            # 每一轮大任务结束保存一次缓存
+            self.cache.save()
+            return results
+
+    async def run_batch(self, repos: List[str], days: int) -> Dict[str, List[Dict]]:
+        final_data = {}
+        for repo in repos:
+            try:
+                commits = await self.collect_repo_commits(repo, days)
+                final_data[repo] = [c.to_dict() for c in commits]
+                self.logger.info(f"[{repo}] 处理完成，有效含位置提交数: {len(commits)}")
+            except Exception as e:
+                self.logger.error(f"[{repo}] 处理出错: {e}")
+        return final_data
+
+# ======================== 模拟数据生成器 ========================
+def generate_mock_data(repos: List[str], count: int = 200) -> Dict[str, List[Dict]]:
+    """生成用于测试的模拟数据，无需联网"""
+    print(f"--- 正在生成模拟数据 ({count}条/库) ---")
+    data = {}
+    locations = [
+        "Beijing, China", "San Francisco, CA", "Remote", "Earth", 
+        "Tokyo, JP", "Berlin", "New York", "", "Not specified"
+    ]
+    users = [f"user_{i}" for i in range(20)]
+    
+    for repo in repos:
+        repo_commits = []
+        for i in range(count):
+            repo_commits.append({
+                "timestamp_unix": int(time.time()) - random.randint(0, 86400*90),
+                "raw_location": random.choice(locations),
+                "contributor_id": random.choice(users),
+                "commit_sha": f"mock_sha_{random.randint(1000,9999)}",
+                "repo_name": repo,
+                "location_iso3": "NEED_CLEANING"
+            })
+        data[repo] = repo_commits
+    return data
+
+# ======================== 主程序入口 ========================
 def main():
-    # 解析命令行参数
-    parser = argparse.ArgumentParser(
-        description="GitHub开源项目提交数据收集与结构转换工具",
-        formatter_class=argparse.RawTextHelpFormatter
-    )
-    
-    parser.add_argument(
-        "--projects",
-        required=True,
-        nargs='+',
-        help="要收集的项目列表，格式为 'owner/repo'，例如:\n  --projects google/gtest tensorflow/tensorflow"
-    )
-    
-    parser.add_argument(
-        "--output",
-        required=True,
-        help="输出JSON文件路径"
-    )
-    
-    parser.add_argument(
-        "--mock",
-        action='store_true',
-        help="使用模拟数据模式（测试用）"
-    )
-    
-    parser.add_argument(
-        "--token",
-        help="GitHub Personal Access Token (优先级高于代码内配置)"
-    )
-    
-    parser.add_argument(
-        "--days",
-        type=int,
-        default=90,
-        help="要获取的提交数据天数范围（默认90天）"
-    )
+    parser = argparse.ArgumentParser(description="GitHub 开源项目地理位置数据采集器 (Async)")
+    parser.add_argument("--projects", nargs='+', required=True, help="项目列表 (格式: owner/repo)")
+    parser.add_argument("--token", help="GitHub Personal Access Token (必须提供，或设置 env GITHUB_TOKEN)")
+    parser.add_argument("--days", type=int, default=90, help="回溯天数 (默认: 90)")
+    parser.add_argument("--output", default="raw_commits_data.json", help="输出文件路径")
+    parser.add_argument("--mock", action="store_true", help="使用模拟数据 (无需Token)")
+    parser.add_argument("--concurrency", type=int, default=10, help="并发请求数")
     
     args = parser.parse_args()
 
-    # 初始化配置
-    github_token = args.token or "YOUR_GITHUB_PERSONAL_ACCESS_TOKEN"
-    config = Config(
-        github_token=github_token,
-        days_to_fetch=args.days
-    )
-
-    # 验证配置
-    if not args.mock and config.github_token == "YOUR_GITHUB_PERSONAL_ACCESS_TOKEN":
-        print("错误: 请通过 --token 参数或修改代码配置GitHub Token", file=sys.stderr)
-        sys.exit(1)
-
-    # 设置会话
-    session = setup_session(config)
-    
-    # 收集数据
-    print(f"\n--- 开始收集 {len(args.projects)} 个项目的数据 ({'模拟' if args.mock else '真实'} 模式) ---")
-    print(f"--- 时间范围: 最近 {config.days_to_fetch} 天 ---")
-    
-    all_projects_data: Dict[str, List[Dict[str, Any]]] = {}
-    
-    for idx, project in enumerate(args.projects, 1):
-        print(f"\n[{idx}/{len(args.projects)}] 处理项目: {project}")
-        
-        with error_handler(f"处理项目 {project}"):
-            project_data = collect_project_data(project, session, config, args.mock)
-            
-            if project_data:
-                # 转换为字典列表
-                all_projects_data[project] = [item.to_dict() for item in project_data]
-                print(f"-> 成功转换 {len(project_data)} 条记录")
-        
-        # 速率限制控制
-        if not args.mock and idx < len(args.projects):
-            time.sleep(config.rate_limit_sleep)
-
-    # 保存数据
-    if all_projects_data:
-        output_path = Path(args.output)
-        try:
-            # 创建输出目录
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(all_projects_data, f, indent=2, ensure_ascii=False)
-            
-            print(f"\n--- 收集完成 ---")
-            print(f"-> 数据已保存到: {output_path.absolute()}")
-            print(f"-> 总计处理 {sum(len(v) for v in all_projects_data.values())} 条记录")
-            print("下一步：使用 llm_geo_cleaner.py 清洗 raw_location 字段并填充 location_iso3")
-            
-        except IOError as e:
-            print(f"错误: 无法写入输出文件 - {e}", file=sys.stderr)
-            sys.exit(1)
+    # 1. 模式选择
+    if args.mock:
+        result_data = generate_mock_data(args.projects)
     else:
-        print("\n警告: 未收集到任何有效数据", file=sys.stderr)
-        sys.exit(0)
+        token = args.token or os.environ.get("GITHUB_TOKEN")
+        if not token:
+            print("错误: 必须提供 GitHub Token。使用 --token 参数或设置 GITHUB_TOKEN 环境变量。")
+            sys.exit(1)
+            
+        collector = GitHubCollector(token, concurrency=args.concurrency)
+        result_data = asyncio.run(collector.run_batch(args.projects, args.days))
+
+    # 2. 保存结果
+    if result_data:
+        try:
+            output_path = Path(args.output)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(result_data, f, ensure_ascii=False, indent=2)
+            
+            total_items = sum(len(v) for v in result_data.values())
+            print(f"\n成功! 数据已保存至: {output_path}")
+            print(f"总计收集: {total_items} 条记录")
+            print("提示: 接下来请运行 location_optimizer.py 对 raw_location 进行清洗。")
+        except Exception as e:
+            print(f"保存文件失败: {e}")
+    else:
+        print("警告: 未收集到任何数据。")
 
 if __name__ == "__main__":
     main()

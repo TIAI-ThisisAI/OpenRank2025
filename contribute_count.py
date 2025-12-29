@@ -59,6 +59,26 @@ def read_excel_data(excel_path):
         logging.error(f"读取 Excel 文件时发生错误：{e}")
         raise e
 
+def execute_query(client, repo_name):
+    """执行 SQL 查询并返回结果"""
+    safe_repo_name = repo_name.strip().replace("'", "''")
+    query = SQL_TEMPLATE.format(safe_repo_name)
+    
+    # 记录查询开始时间
+    query_start_time = time.time()
+    
+    try:
+        result = client.query(query)
+        # 记录查询结束时间并计算时间差
+        query_end_time = time.time()
+        query_duration = query_end_time - query_start_time
+        logging.info(f"查询 {repo_name} 完成，用时 {query_duration:.2f} 秒。")
+        
+        return result
+    except Exception as e:
+        logging.error(f"查询 {repo_name} 时发生错误：{e}")
+        return None
+
 def main():
     """主函数，执行整个流程"""
     try:

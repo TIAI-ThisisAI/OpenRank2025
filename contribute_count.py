@@ -298,6 +298,31 @@ def filter_data(df, column_name, condition_value):
         logging.error(f"数据过滤时发生错误：{e}")
         raise e
 
+import matplotlib.pyplot as plt
+
+def plot_bar_chart(df, column_name, title="OpenRank 分布图", xlabel="仓库名称", ylabel="OpenRank 平均值"):
+    """绘制条形图显示仓库的 OpenRank 分布"""
+    try:
+        # 取出仓库名和 OpenRank 平均值的列
+        data = df[[column_name, 'repo_name']].groupby('repo_name').mean()
+        
+        # 绘制条形图
+        plt.figure(figsize=(10, 6))
+        data[column_name].plot(kind='bar', color='skyblue')
+        plt.title(title)
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        
+        # 保存图表
+        chart_path = 'openrank_bar_chart.png'
+        plt.savefig(chart_path)
+        logging.info(f"条形图已保存为: {chart_path}")
+        plt.close()
+    except Exception as e:
+        logging.error(f"绘制图表时发生错误：{e}")
+        raise e
 
 
 if __name__ == "__main__":

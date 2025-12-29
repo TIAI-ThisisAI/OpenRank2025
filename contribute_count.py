@@ -249,6 +249,19 @@ def build_dynamic_sql_query(repo_name, fields=["description", "primary_language"
     """
     return query
 
+def generate_error_report(failed_repos, error_report_path):
+    """生成查询失败仓库的错误报告"""
+    try:
+        with open(error_report_path, 'w') as f:
+            f.write("查询失败的仓库:\n")
+            for repo in failed_repos:
+                f.write(f"{repo}\n")
+        logging.info(f"查询失败的仓库已保存到错误报告文件: {error_report_path}")
+    except Exception as e:
+        logging.error(f"生成错误报告时发生错误：{e}")
+        raise e
+
+
 
 if __name__ == "__main__":
     main()

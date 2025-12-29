@@ -102,6 +102,15 @@ def process_query_result(result, repo_name, df, index):
         logging.warning(f"处理 {repo_name} - 未找到匹配数据。")
         df.iloc[index + 1, start_column_index:start_column_index+4] = [None] * 4
 
+def clean_and_format_result(result):
+    """清理查询结果数据，去除多余的空格和特殊字符"""
+    if result:
+        # 假设 result 是一个元组，包含 description, primary_language, license, topics
+        cleaned_result = [str(item).strip() if item else "无数据" for item in result]
+        return cleaned_result
+    return ["无数据"] * 4
+
+
 def main():
     """主函数，执行整个流程"""
     try:

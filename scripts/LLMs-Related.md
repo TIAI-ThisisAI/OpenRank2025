@@ -34,3 +34,11 @@ Open Source Tool Links Summary
 ‌简介‌： 一个用于开发由LLM驱动的应用程序的‌框架‌。它提供了各种组件，可以轻松地将LLM与外部数据源、工具（如计算器、搜索引擎）和记忆系统连接起来，构建复杂的链式应用。
 ‌应用场景‌： 智能问答机器人、自动化工作流、基于文档的RAG系统。
 ‌链接‌： https://github.com/langchain-ai/langchain
+
+（6）One API - 多模型统一管理网关
+简介： 一个非常受国内开发者欢迎的开源项目，它可以将各种大模型（OpenAI, Anthropic, Gemini, 百度文心, 通义千问等）统一包装成 OpenAI API 格式。
+功能亮点：
+负载均衡：支持配置多个渠道，自动轮询。
+额度控制：可以为不同的用户或应用设置不同的调用额度和令牌（Key）。
+格式统一：让仅支持 OpenAI 接口的旧应用瞬间支持所有国产大模型。
+项目地址：https://github.com/songquanpeng/one-api

@@ -26,7 +26,7 @@
 
 **(2) 开源协作 PR贡献**
 
-本项目完全以开源协作的方式进行代码迭代，以共计40余个PR的形式完成本项目的开发
+本项目完全以开源协作的方式进行代码迭代，以共计100余个PR的形式完成本项目的开发
 
 ## 作品题目
 **The Global Pulse of Code: A Framework for Evaluating the Globalization of Open Source Projects**

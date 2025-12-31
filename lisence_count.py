@@ -136,6 +136,21 @@ def license_country_cross(df: pd.DataFrame) -> pd.DataFrame:
         df["country"],
         df["license"]
     )
+    
+def license_by_activity_level(
+    df: pd.DataFrame,
+    activity_column: str,
+    bins: list
+) -> pd.DataFrame:
+    """
+    不同活跃度区间的 License 分布
+    """
+    df["activity_level"] = pd.cut(df[activity_column], bins=bins)
+
+    return pd.crosstab(
+        df["activity_level"],
+        df["license"]
+    )
 
 
 if __name__ == "__main__":

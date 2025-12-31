@@ -79,6 +79,19 @@ def normalize_license(license_series: pd.Series) -> pd.Series:
         .str.lower()
     )
 
+def license_coverage_rate(license_series: pd.Series) -> pd.DataFrame:
+    """
+    统计 license 覆盖率（是否声明 license）
+    """
+    total = len(license_series)
+    covered = license_series.notna().sum()
+
+    return pd.DataFrame({
+        "总项目数": [total],
+        "声明 License 项目数": [covered],
+        "覆盖率 (%)": [covered / total * 100]
+    })
+
 
 
 if __name__ == "__main__":

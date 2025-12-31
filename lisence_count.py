@@ -38,3 +38,12 @@ def license_statistics(license_series: pd.Series) -> pd.DataFrame:
         "数量": counts,
         "占比 (%)": percentages
     })
+    
+
+def save_to_excel(df: pd.DataFrame, output_file: str):
+    """
+    保存 DataFrame 到 Excel
+    """
+    df.to_excel(output_file)
+    print(f"结果已保存到 {output_file}")
+

@@ -66,3 +66,13 @@ def run_license_analysis(
     print(summary_df)
 
     save_to_excel(summary_df, output_file)
+
+
+if __name__ == "__main__":
+    run_license_analysis(
+        excel_file="item_with_openrank.xlsx",
+        sheet_name="Sheet3",
+        license_column="license",
+        output_file="license_summary.xlsx"
+    )
+

@@ -128,6 +128,15 @@ def top_license_contribution_ratio(
         "累计占比 (%)": [top_ratio * 100]
     })
 
+def license_country_cross(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    License 与国家/地区的交叉分布表
+    """
+    return pd.crosstab(
+        df["country"],
+        df["license"]
+    )
+
 
 if __name__ == "__main__":
     run_license_analysis(

@@ -113,6 +113,21 @@ def license_diversity_index(license_series: pd.Series) -> float:
     probs = license_series.value_counts(normalize=True)
     return -np.sum(probs * np.log(probs))
 
+def top_license_contribution_ratio(
+    license_series: pd.Series,
+    top_n: int = 5
+) -> pd.DataFrame:
+    """
+    计算 Top-N License 的累积占比
+    """
+    counts = license_series.value_counts(normalize=True)
+    top_ratio = counts.head(top_n).sum()
+
+    return pd.DataFrame({
+        "Top-N": [top_n],
+        "累计占比 (%)": [top_ratio * 100]
+    })
+
 
 if __name__ == "__main__":
     run_license_analysis(

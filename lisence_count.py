@@ -104,6 +104,15 @@ def license_openrank_weighted(df: pd.DataFrame) -> pd.DataFrame:
 
     return result.to_frame(name="OpenRank 加权影响力")
 
+import numpy as np
+
+def license_diversity_index(license_series: pd.Series) -> float:
+    """
+    计算 License 多样性指数（Shannon Entropy）
+    """
+    probs = license_series.value_counts(normalize=True)
+    return -np.sum(probs * np.log(probs))
+
 
 if __name__ == "__main__":
     run_license_analysis(

@@ -152,6 +152,22 @@ def license_by_activity_level(
         df["license"]
     )
 
+def license_time_trend(
+    df: pd.DataFrame,
+    time_column: str
+) -> pd.DataFrame:
+    """
+    不同年份的 License 使用趋势
+    """
+    df["year"] = pd.to_datetime(df[time_column]).dt.year
+
+    return (
+        df.groupby(["year", "license"])
+        .size()
+        .unstack(fill_value=0)
+    )
+
+
 
 if __name__ == "__main__":
     run_license_analysis(

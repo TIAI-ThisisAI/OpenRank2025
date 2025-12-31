@@ -233,6 +233,13 @@ def license_project_health(df: pd.DataFrame, health_column: str) -> pd.DataFrame
     """
     return df.groupby("license")[health_column].mean().sort_values(ascending=False)
 
+def license_documentation_quality(df: pd.DataFrame, doc_column: str) -> pd.DataFrame:
+    """
+    根据项目的文档质量对不同 License 进行分组评分
+    假设 `doc_column` 为文档质量评分（例如：文档是否完整，是否有清晰的 README）
+    """
+    return df.groupby("license")[doc_column].mean().sort_values(ascending=False)
+
 
 
 if __name__ == "__main__":

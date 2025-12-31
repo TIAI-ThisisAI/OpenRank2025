@@ -47,3 +47,22 @@ def save_to_excel(df: pd.DataFrame, output_file: str):
     df.to_excel(output_file)
     print(f"结果已保存到 {output_file}")
 
+
+def run_license_analysis(
+    excel_file: str,
+    sheet_name: str = "Sheet3",
+    license_column: str = "license",
+    fallback_index: int = 2,
+    output_file: str = "license_summary.xlsx"
+):
+    """
+    License 分析主流程（pipeline）
+    """
+    df = read_excel_sheet(excel_file, sheet_name)
+    license_series = get_column_series(df, license_column, fallback_index)
+    summary_df = license_statistics(license_series)
+
+    print("License 统计结果：")
+    print(summary_df)
+
+    save_to_excel(summary_df, output_file)

@@ -25,3 +25,16 @@ def get_column_series(
     else:
         print(f"警告：未找到 '{column_name}' 列，使用第 {fallback_index + 1} 列")
         return df.iloc[:, fallback_index]
+
+def license_statistics(license_series: pd.Series) -> pd.DataFrame:
+    """
+    统计 license 数量及占比
+    """
+    counts = license_series.value_counts()
+    total = len(license_series)
+    percentages = (counts / total) * 100
+
+    return pd.DataFrame({
+        "数量": counts,
+        "占比 (%)": percentages
+    })

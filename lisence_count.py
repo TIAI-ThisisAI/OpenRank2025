@@ -67,6 +67,19 @@ def run_license_analysis(
 
     save_to_excel(summary_df, output_file)
 
+def normalize_license(license_series: pd.Series) -> pd.Series:
+    """
+    对 license 字段做基础清洗与标准化
+    """
+    return (
+        license_series
+        .fillna("Unknown")
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+
 
 if __name__ == "__main__":
     run_license_analysis(

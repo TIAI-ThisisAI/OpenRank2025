@@ -209,6 +209,24 @@ def license_by_region(df: pd.DataFrame) -> pd.DataFrame:
     return pd.crosstab(df["region"], df["license"])
 
 
+import matplotlib.pyplot as plt
+
+def plot_license_time_trend(df: pd.DataFrame, time_column: str) -> None:
+    """
+    绘制不同年份 License 的使用趋势图
+    """
+    df["year"] = pd.to_datetime(df[time_column]).dt.year
+    trend_df = df.groupby(["year", "license"]).size().unstack(fill_value=0)
+
+    trend_df.plot(kind="line", stacked=True, figsize=(10, 6))
+    plt.title("License Usage Trend Over Time")
+    plt.xlabel("Year")
+    plt.ylabel("Number of Projects")
+    plt.legend(title="License", bbox_to_anchor=(1.05, 1), loc="upper left")
+    plt.tight_layout()
+    plt.show()
+
+
 if __name__ == "__main__":
     run_license_analysis(
         excel_file="item_with_openrank.xlsx",

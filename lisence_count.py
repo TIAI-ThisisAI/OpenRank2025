@@ -92,6 +92,17 @@ def license_coverage_rate(license_series: pd.Series) -> pd.DataFrame:
         "覆盖率 (%)": [covered / total * 100]
     })
 
+def license_openrank_weighted(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    基于 OpenRank 的 License 影响力加权统计
+    """
+    result = (
+        df.groupby("license")["openrank"]
+        .sum()
+        .sort_values(ascending=False)
+    )
+
+    return result.to_frame(name="OpenRank 加权影响力")
 
 
 if __name__ == "__main__":

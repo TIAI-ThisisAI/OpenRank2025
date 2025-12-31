@@ -167,6 +167,21 @@ def license_time_trend(
         .unstack(fill_value=0)
     )
 
+def license_risk_label(license_series: pd.Series) -> pd.Series:
+    """
+    为 License 打治理风险标签
+    """
+    high_risk = {"unknown", "custom", "unlicensed"}
+    medium_risk = {"gpl-3.0", "agpl-3.0"}
+
+    def label(lic):
+        if lic in high_risk:
+            return "High Risk"
+        elif lic in medium_risk:
+            return "Medium Risk"
+        return "Low Risk"
+
+    return license_series.apply(label)
 
 
 if __name__ == "__main__":

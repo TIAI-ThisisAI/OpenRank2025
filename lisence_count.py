@@ -202,6 +202,11 @@ def license_profile(license_series: pd.Series) -> dict:
         )["累计占比 (%)"].iloc[0]
     }
 
+def license_by_region(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    统计不同地区的 License 分布
+    """
+    return pd.crosstab(df["region"], df["license"])
 
 
 if __name__ == "__main__":

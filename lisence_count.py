@@ -226,6 +226,14 @@ def plot_license_time_trend(df: pd.DataFrame, time_column: str) -> None:
     plt.tight_layout()
     plt.show()
 
+def license_project_health(df: pd.DataFrame, health_column: str) -> pd.DataFrame:
+    """
+    分析不同 License 对项目健康度的影响
+    假设 `health_column` 为项目健康度指标，例如：stars、forks、issues 数量等
+    """
+    return df.groupby("license")[health_column].mean().sort_values(ascending=False)
+
+
 
 if __name__ == "__main__":
     run_license_analysis(

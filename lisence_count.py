@@ -183,6 +183,19 @@ def license_risk_label(license_series: pd.Series) -> pd.Series:
 
     return license_series.apply(label)
 
+def license_profile(license_series: pd.Series) -> dict:
+    """
+    License 综合画像指标
+    """
+    return {
+        "license_types": license_series.nunique(),
+        "diversity_index": license_diversity_index(license_series),
+        "top_3_ratio": top_license_contribution_ratio(
+            license_series, top_n=3
+        )["累计占比 (%)"].iloc[0]
+    }
+
+
 
 if __name__ == "__main__":
     run_license_analysis(

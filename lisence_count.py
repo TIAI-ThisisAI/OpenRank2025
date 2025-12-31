@@ -26,6 +26,13 @@ def get_column_series(
         print(f"警告：未找到 '{column_name}' 列，使用第 {fallback_index + 1} 列")
         return df.iloc[:, fallback_index]
 
+def fill_missing_license(license_series: pd.Series, fill_value: str = "Unknown") -> pd.Series:
+    """
+    填充缺失的 License 值
+    """
+    return license_series.fillna(fill_value)
+
+
 def license_statistics(license_series: pd.Series) -> pd.DataFrame:
     """
     统计 license 数量及占比

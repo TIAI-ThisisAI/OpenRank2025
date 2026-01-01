@@ -91,3 +91,31 @@ def plot_openrank_trends(
     plt.grid(True)
     plt.tight_layout()
     plt.show()
+
+
+def run_openrank_visualization(
+    json_file: str,
+    recent_n: int = 2,
+    max_rank: int = 15
+):
+    """
+    OpenRank 可视化主流程（Pipeline）
+    """
+    setup_chinese_font()
+    raw_data = load_openrank_json(json_file)
+    years, company_data = extract_years_and_data(raw_data)
+
+    filtered_data = filter_companies_by_recent_years(
+        company_data, years, recent_n
+    )
+
+    sorted_companies = sort_companies_by_final_year_rank(
+        filtered_data, years
+    )
+
+    plot_openrank_trends(
+        years,
+        filtered_data,
+        sorted_companies,
+        max_rank=max_rank
+    )

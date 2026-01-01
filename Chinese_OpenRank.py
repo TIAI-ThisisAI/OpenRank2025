@@ -44,3 +44,24 @@ def filter_companies_by_recent_years(
             for y in recent_years
         )
     }
+
+def sort_companies_by_final_year_rank(
+    data: Dict[str, List[int]],
+    years: List[int]
+) -> List[str]:
+    """
+    按最后一年排名对公司排序
+    """
+    final_year = years[-1]
+    final_index = years.index(final_year)
+
+    final_ranks = {
+        company: (
+            ranks[final_index]
+            if ranks[final_index] is not None
+            else float('inf')
+        )
+        for company, ranks in data.items()
+    }
+
+    return sorted(final_ranks, key=lambda x: final_ranks[x])

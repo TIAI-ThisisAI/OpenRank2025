@@ -10,3 +10,10 @@ def setup_chinese_font():
     """
     rcParams['font.sans-serif'] = ['SimHei']
     rcParams['axes.unicode_minus'] = False
+
+def load_openrank_json(file_path: str) -> Dict:
+    """
+    加载 OpenRank JSON 数据
+    """
+    with open(file_path, 'r') as f:
+        return json.load(f)

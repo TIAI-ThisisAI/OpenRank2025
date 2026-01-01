@@ -119,3 +119,11 @@ def run_openrank_visualization(
         sorted_companies,
         max_rank=max_rank
     )
+
+if __name__ == "__main__":
+    run_openrank_visualization(
+        json_file="openrank_chart_Chinese_data_2.json",
+        recent_n=2,
+        max_rank=15
+    )
+

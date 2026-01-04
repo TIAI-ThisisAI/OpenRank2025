@@ -146,6 +146,18 @@ def sort_companies_by_rank_improvement(
 
     improvements = {c: improvement(r) for c, r in data.items()}
     return sorted(improvements, key=lambda x: improvements[x], reverse=True)
+    
+def filter_long_term_companies(
+    data: dict,
+    min_years: int = 5
+) -> dict:
+    """
+    仅保留至少出现 min_years 次的公司
+    """
+    return {
+        c: r for c, r in data.items()
+        if sum(v is not None for v in r) >= min_years
+    }
 
 
 if __name__ == "__main__":

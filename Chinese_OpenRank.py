@@ -134,6 +134,19 @@ def sort_companies_by_average_rank(
     avg_ranks = {c: avg_rank(r) for c, r in data.items()}
     return sorted(avg_ranks, key=lambda x: avg_ranks[x])
 
+def sort_companies_by_rank_improvement(
+    data: dict
+) -> list:
+    """
+    按排名提升幅度排序（首次出现 vs 最后一年）
+    """
+    def improvement(ranks):
+        valid = [r for r in ranks if r is not None]
+        return valid[0] - valid[-1] if len(valid) >= 2 else float('-inf')
+
+    improvements = {c: improvement(r) for c, r in data.items()}
+    return sorted(improvements, key=lambda x: improvements[x], reverse=True)
+
 
 if __name__ == "__main__":
     run_openrank_visualization(

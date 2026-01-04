@@ -159,6 +159,21 @@ def filter_long_term_companies(
         if sum(v is not None for v in r) >= min_years
     }
 
+import numpy as np
+
+def compute_rank_volatility(
+    data: dict
+) -> dict:
+    """
+    计算各公司排名波动性（标准差）
+    """
+    volatility = {}
+    for company, ranks in data.items():
+        valid = [r for r in ranks if r is not None]
+        volatility[company] = np.std(valid) if len(valid) > 1 else 0
+    return volatility
+
+
 
 if __name__ == "__main__":
     run_openrank_visualization(

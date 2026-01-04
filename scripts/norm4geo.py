@@ -2,16 +2,18 @@
 import asyncio
 import json
 import logging
-import math
 import os
 import sys
 import time
 import csv
-from typing import List, Dict, Any, Optional, Set
+import sqlite3
+import signal
+from typing import List, Dict, Any, Optional, Set, Tuple
 from argparse import ArgumentParser, RawTextHelpFormatter
 from dataclasses import dataclass, field
+from datetime import datetime
 
-# 需要安装第三方库: pip install aiohttp tqdm
+# 依赖检查
 try:
     import aiohttp
     from tqdm.asyncio import tqdm
@@ -24,7 +26,6 @@ API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 DEFAULT_MODEL = "gemini-2.5-flash-preview-09-2025"
 ENV_API_KEY_NAME = "GEMINI_API_KEY"
 
-# JSON Schema (保持原样，用于强制结构化输出)
 LOCATION_SCHEMA = {
     "type": "ARRAY",
     "items": {
@@ -38,85 +39,87 @@ LOCATION_SCHEMA = {
 }
 
 SYSTEM_INSTRUCTION = (
-    "你是专业的地理位置数据标准化引擎。规则："
-    "1. 输入为原始位置列表，输出必须符合JSON Schema；"
-    "2. 输出 ISO 3166-1 Alpha-3 代码（如 CHN, USA）；"
-    "3. 无法识别用 'UNK'；"
-    "4. 仅输出JSON数据。"
+    "你是一个高精度的地理位置标准化引擎。你的任务是将各种语言描述的位置转换为 ISO 3166-1 Alpha-3 国家代码。\n"
+    "规则：\n"
+    "1. 严格遵守 JSON Schema 输出格式。\n"
+    "2. 仅输出 ISO 3166-1 Alpha-3 代码（例如：CHN, USA, GBR, FRA）。\n"
+    "3. 如果位置模糊但能确定国家（如 '加州'），输出该国代码（'USA'）。\n"
+    "4. 无法识别或完全无意义的输入，请使用 'UNK'。\n"
+    "5. 不要输出任何解释文字，只输出合法的 JSON。"
 )
 
-# ======================== 数据结构与配置 ========================
+# ======================== 数据模型 ========================
 @dataclass
-class Config:
-    api_key: str
-    input_file: str
-    output_file: str
-    cache_file: str = "location_cache.json"
-    batch_size: int = 50
-    concurrency: int = 5  #并发请求数限制
-    model_name: str = DEFAULT_MODEL
-    demo_mode: bool = False
+class ProcessingStats:
+    total: int = 0
+    cached: int = 0
+    processed: int = 0
+    failed: int = 0
+    start_time: float = field(default_factory=time.time)
 
-# ======================== 缓存管理器 ========================
-class CacheManager:
-    """简单的基于JSON文件的本地缓存，用于断点续传和节省API调用"""
-    def __init__(self, filepath: str):
-        self.filepath = filepath
-        self.cache: Dict[str, str] = {}
-        self.loaded = False
+# ======================== 存储引擎 (SQLite) ========================
+class StorageEngine:
+    """使用 SQLite 替代 JSON 缓存，提供更高的可靠性和查询效率"""
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self._init_db()
 
-    def load(self):
-        if os.path.exists(self.filepath):
-            try:
-                with open(self.filepath, 'r', encoding='utf-8') as f:
-                    self.cache = json.load(f)
-                logging.info(f"已加载本地缓存: {len(self.cache)} 条记录")
-            except Exception as e:
-                logging.warning(f"加载缓存失败，将创建新缓存: {e}")
-        self.loaded = True
+    def _init_db(self):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS location_cache (
+                    input_text TEXT PRIMARY KEY,
+                    country_code TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
 
-    def save(self):
-        try:
-            with open(self.filepath, 'w', encoding='utf-8') as f:
-                json.dump(self.cache, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logging.error(f"保存缓存失败: {e}")
+    def get_batch(self, texts: List[str]) -> Dict[str, str]:
+        if not texts: return {}
+        placeholders = ','.join(['?'] * len(texts))
+        query = f"SELECT input_text, country_code FROM location_cache WHERE input_text IN ({placeholders})"
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(query, texts)
+            return {row[0]: row[1] for row in cursor.fetchall()}
 
-    def get(self, key: str) -> Optional[str]:
-        return self.cache.get(key)
+    def save_batch(self, results: List[Dict[str, str]]):
+        data = [(item['input_location'], item['standardized_country_code']) for item in results]
+        with sqlite3.connect(self.db_path) as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO location_cache (input_text, country_code) VALUES (?, ?)", 
+                data
+            )
+            conn.commit()
 
-    def set(self, key: str, value: str):
-        self.cache[key] = value
-
-    def update_batch(self, items: List[Dict[str, str]]):
-        """批量更新缓存"""
-        for item in items:
-            self.cache[item['input_location']] = item['standardized_country_code']
-        # 每次批次处理完都保存一次，防止程序崩溃丢失进度
-        self.save()
-
-# ======================== 核心处理器类 ========================
-class LocationStandardizer:
-    def __init__(self, config: Config):
-        self.cfg = config
-        self.api_url = f"{API_BASE_URL}/{self.cfg.model_name}:generateContent?key={self.cfg.api_key}"
-        self.cache_manager = CacheManager(self.cfg.cache_file)
+# ======================== 核心处理器 ========================
+class LocationStandardizerPro:
+    def __init__(self, args):
+        self.args = args
+        self.api_url = f"{API_BASE_URL}/{args.model}:generateContent?key={args.key}"
+        self.storage = StorageEngine(args.cache)
+        self.stats = ProcessingStats()
+        self.is_running = True
         
-        # 配置日志
+        # 日志配置
         logging.basicConfig(
             level=logging.INFO,
-            format="%(asctime)s - %(levelname)s - %(message)s",
-            handlers=[
-                logging.FileHandler("processor.log", encoding="utf-8"),
-                logging.StreamHandler(sys.stdout)
-            ]
+            format="%(asctime)s [%(levelname)s] %(message)s",
+            handlers=[logging.StreamHandler(sys.stdout)]
         )
         self.logger = logging.getLogger("Standardizer")
+        
+        # 信号处理
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            signal.signal(sig, self._handle_exit)
 
-    def _build_payload(self, batch_locations: List[str]) -> Dict:
-        user_query = f"Standardize these locations to ISO 3166-1 Alpha-3:\n{json.dumps(batch_locations, ensure_ascii=False)}"
+    def _handle_exit(self, signum, frame):
+        self.logger.warning("\n正在执行安全退出，请稍候...")
+        self.is_running = False
+
+    def _build_payload(self, batch: List[str]) -> Dict:
         return {
-            "contents": [{"parts": [{"text": user_query}]}],
+            "contents": [{"parts": [{"text": f"Standardize these locations:\n{json.dumps(batch, ensure_ascii=False)}"}]}],
             "systemInstruction": {"parts": [{"text": SYSTEM_INSTRUCTION}]},
             "generationConfig": {
                 "responseMimeType": "application/json",
@@ -124,198 +127,166 @@ class LocationStandardizer:
             }
         }
 
-    async def _process_batch(self, session: aiohttp.ClientSession, batch: List[str], semaphore: asyncio.Semaphore) -> List[Dict[str, str]]:
-        """处理单个批次，包含信号量控制和重试逻辑"""
-        async with semaphore:  # 限制并发数
-            payload = self._build_payload(batch)
-            retry_delay = 1
-            max_retries = 3
+    async def _call_api(self, session: aiohttp.ClientSession, batch: List[str]) -> List[Dict]:
+        """执行 API 请求，带指数退避重试"""
+        payload = self._build_payload(batch)
+        max_retries = 5
+        
+        for attempt in range(max_retries):
+            if not self.is_running: break
+            try:
+                async with session.post(self.api_url, json=payload, timeout=45) as resp:
+                    if resp.status == 429:  # Rate limit
+                        wait = (2 ** attempt) + 2
+                        await asyncio.sleep(wait)
+                        continue
+                    
+                    if resp.status != 200:
+                        err_msg = await resp.text()
+                        raise Exception(f"API Error {resp.status}: {err_msg}")
 
-            for attempt in range(max_retries + 1):
-                try:
-                    async with session.post(self.api_url, json=payload, timeout=30) as response:
-                        if response.status != 200:
-                            error_text = await response.text()
-                            raise aiohttp.ClientResponseError(
-                                response.request_info, response.history, 
-                                status=response.status, message=error_text
-                            )
-                        
-                        result = await response.json()
-                        # 解析 Gemini 响应
-                        candidates = result.get("candidates", [])
-                        if not candidates:
-                            raise ValueError("API返回无candidates")
-                        
-                        content_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text")
-                        if not content_text:
-                            raise ValueError("API返回内容为空")
+                    data = await resp.json()
+                    text = data['candidates'][0]['content']['parts'][0]['text']
+                    return json.loads(text)
 
-                        parsed_data = json.loads(content_text)
-                        
-                        # 简单校验
-                        if isinstance(parsed_data, list):
-                            return parsed_data
-                        else:
-                            raise ValueError("API返回格式非列表")
-
-                except Exception as e:
-                    if attempt < max_retries:
-                        sleep_time = retry_delay * (2 ** attempt) # 指数退避
-                        # self.logger.warning(f"批次请求失败 ({e})，{sleep_time}秒后重试...")
-                        await asyncio.sleep(sleep_time)
-                    else:
-                        self.logger.error(f"批次最终失败: {e}")
-                        # 失败降级：将该批次所有数据标记为 UNK
-                        return [{"input_location": loc, "standardized_country_code": "UNK_ERROR"} for loc in batch]
-            return []
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    self.logger.error(f"Batch failed after {max_retries} retries: {e}")
+                    return [{"input_location": loc, "standardized_country_code": "ERROR"} for loc in batch]
+                await asyncio.sleep(2 ** attempt)
+        
+        return []
 
     async def run(self):
-        """主执行流程"""
-        # 1. 加载缓存
-        self.cache_manager.load()
+        # 1. 数据加载与预处理
+        raw_inputs = self._load_data()
+        unique_inputs = list(dict.fromkeys(raw_inputs)) # 保序去重
+        self.stats.total = len(unique_inputs)
+        
+        # 2. 检查缓存
+        cached_map = self.storage.get_batch(unique_inputs)
+        self.stats.cached = len(cached_map)
+        to_process = [loc for loc in unique_inputs if loc not in cached_map]
+        
+        self.logger.info(f"任务启动 | 总计: {len(raw_inputs)} | 唯一值: {self.stats.total} | 命中缓存: {self.stats.cached} | 待处理: {len(to_process)}")
 
-        # 2. 获取数据
-        raw_data = self._load_input()
-        if not raw_data:
-            self.logger.error("无数据需要处理")
+        if not to_process:
+            self._finalize(raw_inputs)
             return
 
-        # 3. 过滤已缓存数据
-        to_process = []
-        cached_results = []
+        # 3. 分批异步处理
+        batches = [to_process[i:i + self.args.batch] for i in range(0, len(to_process), self.args.batch)]
+        semaphore = asyncio.Semaphore(self.args.concurrency)
         
-        # 去重并检查缓存
-        seen = set()
-        unique_raw = []
-        for loc in raw_data:
-            if loc not in seen:
-                seen.add(loc)
-                unique_raw.append(loc)
+        async with aiohttp.ClientSession() as session:
+            tasks = []
+            for b in batches:
+                tasks.append(self._worker(session, b, semaphore))
+            
+            # 使用 tqdm 实时追踪
+            for _ in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="标准化进度"):
+                await _
 
-        for loc in unique_raw:
-            cached_val = self.cache_manager.get(loc)
-            if cached_val:
-                cached_results.append({"input_location": loc, "standardized_country_code": cached_val})
-            else:
-                to_process.append(loc)
+        # 4. 导出结果
+        if self.is_running:
+            self._finalize(raw_inputs)
 
-        self.logger.info(f"总数据: {len(raw_data)}, 唯一数据: {len(unique_raw)}")
-        self.logger.info(f"命中缓存: {len(cached_results)}, 待处理API: {len(to_process)}")
+    async def _worker(self, session, batch, semaphore):
+        async with semaphore:
+            if not self.is_running: return
+            results = await self._call_api(session, batch)
+            if results:
+                self.storage.save_batch(results)
+                self.stats.processed += len(results)
 
-        # 4. 批次切分
-        batches = [to_process[i:i + self.cfg.batch_size] for i in range(0, len(to_process), self.cfg.batch_size)]
-        new_results = []
-
-        # 5. 异步并发处理
-        if batches:
-            semaphore = asyncio.Semaphore(self.cfg.concurrency)
-            async with aiohttp.ClientSession() as session:
-                tasks = [self._process_batch(session, batch, semaphore) for batch in batches]
-                
-                # 使用 tqdm 显示进度条
-                for coro in tqdm.as_completed(tasks, desc="API请求进度", total=len(batches)):
-                    batch_res = await coro
-                    if batch_res:
-                        new_results.extend(batch_res)
-                        # 实时更新缓存，避免程序中途崩溃数据丢失
-                        self.cache_manager.update_batch(batch_res)
+    def _load_data(self) -> List[str]:
+        """灵活的数据读取：支持 CSV 指定列或 JSON 列表"""
+        path = self.args.input
+        if self.args.demo: return ["New York", "Shanghai", "Berlin", "Paris", "Unknown"] * 10
         
-        # 6. 合并结果并映射回原始顺序
-        final_lookup = {item["input_location"]: item["standardized_country_code"] for item in cached_results + new_results}
-        
-        final_output = []
-        for loc in raw_data:
-            final_output.append({
-                "input_location": loc,
-                "standardized_country_code": final_lookup.get(loc, "UNK")
-            })
-
-        # 7. 保存
-        self._save_output(final_output)
-
-    def _load_input(self) -> List[str]:
-        """支持 CSV 和 JSON"""
-        if self.cfg.demo_mode:
-            return ["BeiJing", "NYC", "London", "Tokyo", "Unknown Place"] * 5
-        
-        path = self.cfg.input_file
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"找不到文件: {path}")
-
         ext = os.path.splitext(path)[1].lower()
         data = []
-        
-        try:
-            if ext == '.json':
-                with open(path, 'r', encoding='utf-8') as f:
-                    content = json.load(f)
-                    if isinstance(content, list):
-                        # 兼容 ["Loc"] 和 [{"location": "Loc"}] 两种格式
-                        data = [x if isinstance(x, str) else list(x.values())[0] for x in content]
-            elif ext == '.csv':
-                with open(path, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f)
-                    for row in reader:
-                        if row: data.append(row[0]) # 假设第一列是地址
-            
-            return [str(d).strip() for d in data if d]
-        except Exception as e:
-            self.logger.error(f"读取文件失败: {e}")
-            sys.exit(1)
-
-    def _save_output(self, data: List[Dict]):
-        path = self.cfg.output_file
-        ext = os.path.splitext(path)[1].lower()
-        
         try:
             if ext == '.csv':
-                with open(path, 'w', newline='', encoding='utf-8') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(["input_location", "standardized_country_code"])
-                    for item in data:
-                        writer.writerow([item["input_location"], item["standardized_country_code"]])
-            else: # 默认为 JSON
-                with open(path, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
-            
-            self.logger.info(f"处理完成，结果已保存至: {path}")
+                with open(path, 'r', encoding='utf-8') as f:
+                    # 自动检测表头
+                    sample = f.read(2048)
+                    f.seek(0)
+                    has_header = csv.Sniffer().has_header(sample)
+                    reader = csv.DictReader(f) if has_header else csv.reader(f)
+                    
+                    for row in reader:
+                        if isinstance(row, dict):
+                            val = row.get(self.args.column) or list(row.values())[0]
+                        else:
+                            val = row[0]
+                        if val: data.append(str(val).strip())
+            else:
+                with open(path, 'r', encoding='utf-8') as f:
+                    content = json.load(f)
+                    data = content if isinstance(content, list) else [str(x) for x in content.values()]
+            return data
         except Exception as e:
-            self.logger.error(f"保存文件失败: {e}")
+            self.logger.error(f"加载数据失败: {e}")
+            sys.exit(1)
 
-# ======================== 入口函数 ========================
+    def _finalize(self, original_order: List[str]):
+        """根据原始顺序导出最终结果"""
+        final_cache = self.storage.get_batch(list(set(original_order)))
+        output_data = [
+            {"input": loc, "country": final_cache.get(loc, "UNK")} 
+            for loc in original_order
+        ]
+        
+        out_path = self.args.output
+        try:
+            if out_path.endswith('.csv'):
+                with open(out_path, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.DictWriter(f, fieldnames=["input", "country"])
+                    writer.writeheader()
+                    writer.writerows(output_data)
+            else:
+                with open(out_path, 'w', encoding='utf-8') as f:
+                    json.dump(output_data, f, ensure_ascii=False, indent=2)
+            
+            elapsed = time.time() - self.stats.start_time
+            self.logger.info(f"--- 处理报告 ---")
+            self.logger.info(f"总耗时: {elapsed:.2f}s | 平均速度: {len(original_order)/max(elapsed,1):.2f}条/秒")
+            self.logger.info(f"结果已保存至: {out_path}")
+        except Exception as e:
+            self.logger.error(f"保存失败: {e}")
+
+# ======================== 入口 ========================
 def main():
-    parser = ArgumentParser(description="Gemini 地理位置标准化工具 (Async Pro版)")
-    parser.add_argument("--input", help="输入文件路径 (支持 JSON list 或 CSV 单列)")
-    parser.add_argument("--output", default="output.json", help="输出文件路径 (支持 .json 或 .csv)")
-    parser.add_argument("--cache", default="location_cache.json", help="本地缓存文件路径")
-    parser.add_argument("--key", default=os.environ.get(ENV_API_KEY_NAME), help="Gemini API Key")
-    parser.add_argument("--batch", type=int, default=50, help="每批次处理数量")
-    parser.add_argument("--concurrency", type=int, default=5, help="并发请求数限制 (建议 3-10)")
-    parser.add_argument("--demo", action="store_true", help="使用内置演示数据")
+    parser = ArgumentParser(description="Gemini 地理标准化 Pro", formatter_class=RawTextHelpFormatter)
+    group = parser.add_argument_group("基础配置")
+    group.add_argument("--input", "-i", help="输入文件 (CSV/JSON)")
+    group.add_argument("--output", "-o", default="standardized_results.csv", help="输出路径")
+    group.add_argument("--key", "-k", default=os.environ.get(ENV_API_KEY_NAME), help="API Key")
+    
+    group = parser.add_argument_group("高级参数")
+    group.add_argument("--model", default=DEFAULT_MODEL, help="使用的模型版本")
+    group.add_argument("--batch", "-b", type=int, default=50, help="每批次处理条数 (建议 30-100)")
+    group.add_argument("--concurrency", "-c", type=int, default=10, help="并行工作协程数")
+    group.add_argument("--cache", default="geo_cache.db", help="SQLite 缓存数据库路径")
+    group.add_argument("--column", default="location", help="CSV 输入中的目标列名")
+    group.add_argument("--demo", action="store_true", help="运行演示模式")
 
     args = parser.parse_args()
 
     if not args.key:
-        print("错误: 未提供 API Key。请设置环境变量 GEMINI_API_KEY 或使用 --key 参数。")
-        sys.exit(1)
+        print("错误: 缺少 API Key。请设置环境变量 GEMINI_API_KEY 或使用 --key。")
+        return
 
     if not args.input and not args.demo:
-        print("错误: 请提供 --input 文件或使用 --demo 模式。")
-        sys.exit(1)
+        parser.print_help()
+        return
 
-    config = Config(
-        api_key=args.key,
-        input_file=args.input,
-        output_file=args.output,
-        cache_file=args.cache,
-        batch_size=args.batch,
-        concurrency=args.concurrency,
-        demo_mode=args.demo
-    )
-
-    runner = LocationStandardizer(config)
-    asyncio.run(runner.run())
+    app = LocationStandardizerPro(args)
+    try:
+        asyncio.run(app.run())
+    except KeyboardInterrupt:
+        pass
 
 if __name__ == "__main__":
     main()

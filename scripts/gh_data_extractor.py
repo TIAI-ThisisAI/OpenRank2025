@@ -2,14 +2,15 @@
 import asyncio
 import json
 import logging
-import math
 import os
 import sys
 import time
 import random
 import argparse
-from typing import List, Dict, Any, Optional, Set
-from dataclasses import dataclass, asdict
+import sqlite3
+import csv
+from typing import List, Dict, Any, Optional, Set, Tuple
+from dataclasses import dataclass, asdict, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -24,7 +25,7 @@ except ImportError:
 # ======================== 配置与常量 ========================
 GITHUB_API_BASE = "https://api.github.com"
 DEFAULT_PER_PAGE = 100
-CACHE_FILE_NAME = "github_user_cache.json"
+CACHE_DB_NAME = "github_data_cache.db"
 
 @dataclass
 class CommitData:
@@ -34,280 +35,235 @@ class CommitData:
     contributor_id: str
     commit_sha: str
     repo_name: str
-    # 预留字段，供下游 location_optimizer.py 填充
-    location_iso3: str = "NEED_CLEANING"
+    location_iso3: str = "PENDING"
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
-class DiskCache:
-    """持久化缓存，用于存储不变的数据（如用户位置），节省API配额"""
-    def __init__(self, filepath: str):
-        self.filepath = filepath
-        self.data: Dict[str, str] = {}
-        self.loaded = False
+# ======================== 存储引擎 (SQLite) ========================
+class StorageEngine:
+    """使用 SQLite 存储用户地理位置和处理记录，支持断点续传"""
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self._init_db()
 
-    def load(self):
-        if os.path.exists(self.filepath):
-            try:
-                with open(self.filepath, 'r', encoding='utf-8') as f:
-                    self.data = json.load(f)
-            except Exception as e:
-                logging.warning(f"加载缓存失败: {e}")
-        self.loaded = True
+    def _init_db(self):
+        with sqlite3.connect(self.db_path) as conn:
+            # 用户位置缓存表
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_locations (
+                    username TEXT PRIMARY KEY,
+                    location TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            # 记录已处理的 Repo 和 Sha，防止重复采集
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS processed_commits (
+                    sha TEXT PRIMARY KEY,
+                    repo_name TEXT,
+                    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
 
-    def save(self):
-        try:
-            with open(self.filepath, 'w', encoding='utf-8') as f:
-                json.dump(self.data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logging.error(f"保存缓存失败: {e}")
+    def get_user_location(self, username: str) -> Optional[str]:
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("SELECT location FROM user_locations WHERE username = ?", (username,))
+            row = cursor.fetchone()
+            return row[0] if row else None
 
-    def get(self, key: str) -> Optional[str]:
-        return self.data.get(key)
+    def upsert_user_location(self, username: str, location: Optional[str]):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO user_locations (username, location) VALUES (?, ?)",
+                (username, location or "")
+            )
+            conn.commit()
 
-    def set(self, key: str, value: str):
-        self.data[key] = value
+    def is_commit_processed(self, sha: str) -> bool:
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("SELECT 1 FROM processed_commits WHERE sha = ?", (sha,))
+            return cursor.fetchone() is not None
 
-class GitHubCollector:
-    def __init__(self, token: str, cache_path: str = CACHE_FILE_NAME, concurrency: int = 10):
+    def mark_commits_processed(self, sha_repo_list: List[Tuple[str, str]]):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.executemany("INSERT OR IGNORE INTO processed_commits (sha, repo_name) VALUES (?, ?)", sha_repo_list)
+            conn.commit()
+
+# ======================== 核心采集器 ========================
+class GitHubCollectorPro:
+    def __init__(self, token: str, db_path: str = CACHE_DB_NAME, concurrency: int = 10):
         self.token = token
         self.concurrency = concurrency
-        self.cache = DiskCache(cache_path)
-        self.cache.load()
+        self.storage = StorageEngine(db_path)
+        self.session: Optional[aiohttp.ClientSession] = None
         
-        # 配置日志
         logging.basicConfig(
             level=logging.INFO,
-            format="%(asctime)s - %(levelname)s - %(message)s",
+            format="%(asctime)s [%(levelname)s] %(message)s",
             handlers=[logging.StreamHandler(sys.stdout)]
         )
-        self.logger = logging.getLogger("GitHubCollector")
+        self.logger = logging.getLogger("Collector")
 
     def _get_headers(self) -> Dict[str, str]:
         return {
             "Authorization": f"token {self.token}",
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "GitHub-Commit-Collector-Async/2.0"
+            "User-Agent": "GitHub-Geo-Collector-Pro/3.0"
         }
 
-    async def _fetch(self, session: aiohttp.ClientSession, url: str, params: Dict = None) -> Any:
-        """通用请求函数，处理速率限制和重试"""
-        retry_delay = 1.0
-        max_retries = 5
+    async def _request(self, url: str, params: Dict = None) -> Any:
+        """核心请求逻辑，包含频率限制嗅探"""
+        if not self.session:
+            self.session = aiohttp.ClientSession(headers=self._get_headers())
         
-        for attempt in range(max_retries):
+        for attempt in range(5):
             try:
-                async with session.get(url, headers=self._get_headers(), params=params) as response:
-                    # 处理速率限制
-                    if response.status == 403:
-                        rate_limit_remaining = response.headers.get('X-RateLimit-Remaining')
-                        if rate_limit_remaining == '0':
-                            reset_time = int(response.headers.get('X-RateLimit-Reset', 0))
-                            wait_time = max(reset_time - time.time(), 1) + 1
-                            self.logger.warning(f"触发API速率限制，暂停 {wait_time:.0f} 秒...")
-                            await asyncio.sleep(wait_time)
-                            continue
-
-                    if response.status != 200:
-                        # 404 表示用户或仓库不存在，无需重试
-                        if response.status == 404:
-                            return None
-                        response.raise_for_status()
-
-                    return await response.json()
-            
+                async with self.session.get(url, params=params, timeout=30) as resp:
+                    # 处理频率限制
+                    if resp.status == 403:
+                        reset = int(resp.headers.get("X-RateLimit-Reset", time.time() + 60))
+                        wait_time = max(reset - time.time(), 5) + 1
+                        self.logger.warning(f"触发频率限制，需等待 {wait_time:.0f}s...")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    
+                    if resp.status == 404: return None
+                    resp.raise_for_status()
+                    return await resp.json()
             except Exception as e:
-                if attempt < max_retries - 1:
-                    sleep_time = retry_delay * (2 ** attempt) + random.uniform(0, 1)
-                    await asyncio.sleep(sleep_time)
-                else:
-                    self.logger.error(f"请求失败 {url}: {e}")
-                    return None
+                if attempt == 4: self.logger.error(f"请求失败 {url}: {e}")
+                await asyncio.sleep(2 ** attempt + random.random())
         return None
 
-    async def fetch_user_location(self, session: aiohttp.ClientSession, username: str) -> str:
-        """获取用户位置（优先查缓存）"""
-        if not username:
-            return ""
-            
-        # 1. 查缓存
-        cached_loc = self.cache.get(username)
-        if cached_loc is not None:
-            return cached_loc
+    async def get_user_location(self, username: str) -> str:
+        """获取用户位置（带二级缓存：DB + Memory）"""
+        if not username: return ""
+        
+        # 1. 检查数据库缓存
+        cached = self.storage.get_user_location(username)
+        if cached is not None: return cached
 
-        # 2. 查API
-        url = f"{GITHUB_API_BASE}/users/{username}"
-        user_data = await self._fetch(session, url)
+        # 2. 爬取 API
+        data = await self._request(f"{GITHUB_API_BASE}/users/{username}")
+        loc = (data.get("location") or "").strip().replace("\n", " ") if data else ""
         
-        location = ""
-        if user_data:
-            location = user_data.get("location") or ""
-            # 清理换行符等
-            location = location.replace("\n", " ").strip()
-        
-        # 3. 写入缓存（即使为空也缓存，避免重复查询无效用户）
-        self.cache.set(username, location)
-        return location
+        # 3. 异步存入数据库
+        self.storage.upsert_user_location(username, loc)
+        return loc
 
-    async def collect_repo_commits(self, repo_full_name: str, days: int) -> List[CommitData]:
-        """收集单个仓库的提交数据"""
-        self.logger.info(f"开始处理项目: {repo_full_name}")
+    async def collect_repo(self, repo_path: str, days: int) -> List[CommitData]:
+        """采集单个仓库的增量数据"""
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        url = f"{GITHUB_API_BASE}/repos/{repo_path}/commits"
         
-        since_date = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        url = f"{GITHUB_API_BASE}/repos/{repo_full_name}/commits"
-        
-        all_commits_raw = []
+        self.logger.info(f"正在同步项目: {repo_path}")
+        all_results = []
         page = 1
         
-        async with aiohttp.ClientSession() as session:
-            # 1. 获取所有提交列表 (分页)
-            while True:
-                params = {"per_page": DEFAULT_PER_PAGE, "page": page, "since": since_date}
-                self.logger.info(f"[{repo_full_name}] 获取提交列表第 {page} 页...")
-                
-                batch = await self._fetch(session, url, params)
-                if not batch:
-                    break
-                
-                all_commits_raw.extend(batch)
-                if len(batch) < DEFAULT_PER_PAGE:
-                    break
-                page += 1
+        while True:
+            params = {"per_page": DEFAULT_PER_PAGE, "page": page, "since": since}
+            batch = await self._request(url, params)
+            if not batch: break
 
-            self.logger.info(f"[{repo_full_name}] 共获取 {len(all_commits_raw)} 条提交记录，开始解析用户...")
-
-            # 2. 提取唯一作者并获取位置
-            unique_authors = set()
-            commits_with_author = []
-
-            for commit in all_commits_raw:
-                author = commit.get("author") # GitHub账号信息
-                if author and "login" in author:
-                    login = author["login"]
-                    unique_authors.add(login)
-                    commits_with_author.append({
-                        "login": login,
-                        "sha": commit["sha"],
-                        "date": commit["commit"]["author"]["date"]
-                    })
-
-            # 3. 并发获取用户位置
+            # 过滤掉已处理的 Commit
+            new_commits = [c for c in batch if not self.storage.is_commit_processed(c['sha'])]
+            if not new_commits and len(batch) > 0:
+                self.logger.info(f"[{repo_path}] 到达已处理区域，停止翻页")
+                break
+            
+            # 提取贡献者
+            unique_users = {c['author']['login'] for c in new_commits if c.get('author')}
+            user_map = {}
+            
+            # 并发获取用户信息
             semaphore = asyncio.Semaphore(self.concurrency)
-            user_location_map = {}
-            
-            async def _bounded_fetch_user(username):
+            async def _get_loc(u):
                 async with semaphore:
-                    loc = await self.fetch_user_location(session, username)
-                    user_location_map[username] = loc
+                    user_map[u] = await self.get_user_location(u)
 
-            # 使用 tqdm 显示用户解析进度
-            tasks = [_bounded_fetch_user(u) for u in unique_authors]
-            if tasks:
-                for f in tqdm.as_completed(tasks, desc=f"解析 {repo_full_name} 贡献者", total=len(tasks)):
-                    await f
+            if unique_users:
+                await asyncio.gather(*[_get_loc(u) for u in unique_users])
+
+            # 封装数据
+            current_batch_data = []
+            storage_batch = []
+            for c in new_commits:
+                login = c['author']['login'] if c.get('author') else None
+                if not login: continue
+                
+                loc = user_map.get(login, "")
+                cd = CommitData(
+                    timestamp_unix=int(datetime.fromisoformat(c['commit']['author']['date'].replace("Z", "+00:00")).timestamp()),
+                    raw_location=loc,
+                    contributor_id=login,
+                    commit_sha=c['sha'],
+                    repo_name=repo_path
+                )
+                current_batch_data.append(cd)
+                storage_batch.append((c['sha'], repo_path))
+
+            all_results.extend(current_batch_data)
+            self.storage.mark_commits_processed(storage_batch)
             
-            # 4. 组装最终数据
-            results = []
-            for item in commits_with_author:
-                ts_str = item["date"].replace("Z", "+00:00")
-                try:
-                    ts = int(datetime.fromisoformat(ts_str).timestamp())
-                except:
-                    ts = 0
-                
-                loc = user_location_map.get(item["login"], "")
-                
-                # 仅保留有位置信息的记录（可选策略）
-                if loc:
-                    results.append(CommitData(
-                        timestamp_unix=ts,
-                        raw_location=loc,
-                        contributor_id=item["login"],
-                        commit_sha=item["sha"],
-                        repo_name=repo_full_name
-                    ))
+            if len(batch) < DEFAULT_PER_PAGE: break
+            page += 1
+            
+        self.logger.info(f"[{repo_path}] 新采集记录: {len(all_results)}")
+        return all_results
 
-            # 每一轮大任务结束保存一次缓存
-            self.cache.save()
-            return results
+    async def close(self):
+        if self.session:
+            await self.session.close()
 
-    async def run_batch(self, repos: List[str], days: int) -> Dict[str, List[Dict]]:
-        final_data = {}
-        for repo in repos:
-            try:
-                commits = await self.collect_repo_commits(repo, days)
-                final_data[repo] = [c.to_dict() for c in commits]
-                self.logger.info(f"[{repo}] 处理完成，有效含位置提交数: {len(commits)}")
-            except Exception as e:
-                self.logger.error(f"[{repo}] 处理出错: {e}")
-        return final_data
-
-# ======================== 模拟数据生成器 ========================
-def generate_mock_data(repos: List[str], count: int = 200) -> Dict[str, List[Dict]]:
-    """生成用于测试的模拟数据，无需联网"""
-    print(f"--- 正在生成模拟数据 ({count}条/库) ---")
-    data = {}
-    locations = [
-        "Beijing, China", "San Francisco, CA", "Remote", "Earth", 
-        "Tokyo, JP", "Berlin", "New York", "", "Not specified"
-    ]
-    users = [f"user_{i}" for i in range(20)]
+# ======================== 主程序 ========================
+async def run_pipeline(args):
+    collector = GitHubCollectorPro(
+        token=args.token or os.environ.get("GITHUB_TOKEN", ""),
+        concurrency=args.concurrency
+    )
     
-    for repo in repos:
-        repo_commits = []
-        for i in range(count):
-            repo_commits.append({
-                "timestamp_unix": int(time.time()) - random.randint(0, 86400*90),
-                "raw_location": random.choice(locations),
-                "contributor_id": random.choice(users),
-                "commit_sha": f"mock_sha_{random.randint(1000,9999)}",
-                "repo_name": repo,
-                "location_iso3": "NEED_CLEANING"
-            })
-        data[repo] = repo_commits
-    return data
+    final_output = []
+    try:
+        for repo in args.projects:
+            data = await collector.collect_repo(repo, args.days)
+            final_output.extend([d.to_dict() for d in data])
+            
+        if final_output:
+            out_path = Path(args.output)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            if out_path.suffix == '.csv':
+                with open(out_path, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.DictWriter(f, fieldnames=CommitData.__dataclass_fields__.keys())
+                    writer.writeheader()
+                    writer.writerows(final_output)
+            else:
+                with open(out_path, 'w', encoding='utf-8') as f:
+                    json.dump(final_output, f, ensure_ascii=False, indent=2)
+            
+            print(f"\n采集完成! 结果保存在: {out_path} (共 {len(final_output)} 条新数据)")
+        else:
+            print("\n没有发现新提交。")
+            
+    finally:
+        await collector.close()
 
-# ======================== 主程序入口 ========================
 def main():
-    parser = argparse.ArgumentParser(description="GitHub 开源项目地理位置数据采集器 (Async)")
-    parser.add_argument("--projects", nargs='+', required=True, help="项目列表 (格式: owner/repo)")
-    parser.add_argument("--token", help="GitHub Personal Access Token (必须提供，或设置 env GITHUB_TOKEN)")
-    parser.add_argument("--days", type=int, default=90, help="回溯天数 (默认: 90)")
-    parser.add_argument("--output", default="raw_commits_data.json", help="输出文件路径")
-    parser.add_argument("--mock", action="store_true", help="使用模拟数据 (无需Token)")
-    parser.add_argument("--concurrency", type=int, default=10, help="并发请求数")
+    parser = argparse.ArgumentParser(description="GitHub 开源项目地理数据采集器 Pro", formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument("--projects", "-p", nargs='+', required=True, help="项目列表 (owner/repo)")
+    parser.add_argument("--token", "-t", help="GitHub PAT (建议设置环境变量 GITHUB_TOKEN)")
+    parser.add_argument("--days", "-d", type=int, default=30, help="回溯时间范围(天)")
+    parser.add_argument("--output", "-o", default="raw_github_data.json", help="输出路径 (.json 或 .csv)")
+    parser.add_argument("--concurrency", "-c", type=int, default=15, help="并行采集数")
     
     args = parser.parse_args()
+    if not (args.token or os.environ.get("GITHUB_TOKEN")):
+        print("错误: 请通过 --token 或环境变量 GITHUB_TOKEN 提供访问令牌。")
+        return
 
-    # 1. 模式选择
-    if args.mock:
-        result_data = generate_mock_data(args.projects)
-    else:
-        token = args.token or os.environ.get("GITHUB_TOKEN")
-        if not token:
-            print("错误: 必须提供 GitHub Token。使用 --token 参数或设置 GITHUB_TOKEN 环境变量。")
-            sys.exit(1)
-            
-        collector = GitHubCollector(token, concurrency=args.concurrency)
-        result_data = asyncio.run(collector.run_batch(args.projects, args.days))
-
-    # 2. 保存结果
-    if result_data:
-        try:
-            output_path = Path(args.output)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(result_data, f, ensure_ascii=False, indent=2)
-            
-            total_items = sum(len(v) for v in result_data.values())
-            print(f"\n成功! 数据已保存至: {output_path}")
-            print(f"总计收集: {total_items} 条记录")
-            print("提示: 接下来请运行 location_optimizer.py 对 raw_location 进行清洗。")
-        except Exception as e:
-            print(f"保存文件失败: {e}")
-    else:
-        print("警告: 未收集到任何数据。")
+    asyncio.run(run_pipeline(args))
 
 if __name__ == "__main__":
     main()

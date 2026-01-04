@@ -120,6 +120,21 @@ def run_openrank_visualization(
         max_rank=max_rank
     )
 
+def sort_companies_by_average_rank(
+    data: dict,
+    ignore_none: bool = True
+) -> list:
+    """
+    按公司历史平均排名排序（可忽略 None）
+    """
+    def avg_rank(ranks):
+        valid = [r for r in ranks if r is not None] if ignore_none else ranks
+        return sum(valid) / len(valid) if valid else float('inf')
+
+    avg_ranks = {c: avg_rank(r) for c, r in data.items()}
+    return sorted(avg_ranks, key=lambda x: avg_ranks[x])
+
+
 if __name__ == "__main__":
     run_openrank_visualization(
         json_file="openrank_chart_Chinese_data_2.json",

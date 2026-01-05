@@ -104,3 +104,33 @@ def save_to_excel(df: pd.DataFrame, file_path: str):
         print(f"结果已成功写入 Excel 文件: {file_path}")
     except Exception as e:
         print(f"保存 Excel 文件时发生错误：{e}")
+
+def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
+    """
+    主流程：执行连接、数据读取、处理、保存等任务
+    """
+    # 1. 连接到 ClickHouse 数据库
+    client = get_clickhouse_client(client_config)
+    if not client:
+        return
+
+    # 2. 读取 Excel 数据
+    df = load_excel_data(excel_file_path)
+    if df is None:
+        return
+
+    # 3. 提取项目名列表
+    repo_names = extract_repo_names(df, b_column_index)
+
+    print("开始处理仓库列表...")
+
+    # 4. 处理每个仓库的数据
+    process_repo_data(client, repo_names, df, b_column_index, start_column_index)
+
+    # 5. 保存修改后的数据
+    save_to_excel(df, excel_file_path)
+
+    # 6. 关闭数据库连接
+    if client.is_connected():
+        client.close()
+    print("\n程序执行完毕！")

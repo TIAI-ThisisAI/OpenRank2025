@@ -56,3 +56,14 @@ def generate_sql_query(repo_name: str) -> str:
         t1.repo_name = '{safe_repo_name}'
     LIMIT 1
     """
+
+def query_clickhouse(client, query: str):
+    """
+    执行 ClickHouse 查询并返回结果
+    """
+    try:
+        result = client.query(query)
+        return result
+    except Exception as e:
+        print(f"查询时发生错误：{e}")
+        return None

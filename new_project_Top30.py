@@ -67,3 +67,29 @@ def query_clickhouse(client, query: str):
     except Exception as e:
         print(f"查询时发生错误：{e}")
         return None
+
+def process_repo_data(client, repo_names: list, df: pd.DataFrame, b_column_index: int, start_column_index: int):
+    """
+    遍历仓库名列表并执行查询，将数据写入 Excel
+    """
+    for index, repo_name in enumerate(repo_names):
+        # 忽略空值或无效值
+        if not repo_name or repo_name.lower() == 'nan':
+            continue
+
+        query = generate_sql_query(repo_name)
+        result = query_clickhouse(client, query)
+
+        if result and result.row_count > 0:
+            # 提取查询结果
+            description, primary_language, license, topics = result.first_row
+            print(f"处理中... {repo_name} - 成功获取数据。")
+
+            # 将结果写入DataFrame的对应位置
+            df.iloc[index + 1, start_column_index] = description
+            df.iloc[index + 1, start_column_index + 1] = primary_language
+            df.iloc[index + 1, start_column_index + 2] = license
+            df.iloc[index + 1, start_column_index + 3] = topics
+        else:
+            print(f"处理中... {repo_name} - 未找到匹配数据。")
+            df.iloc[index + 1, start_column_index:start_column_index + 4] = [None] * 4

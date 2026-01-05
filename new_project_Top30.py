@@ -93,3 +93,14 @@ def process_repo_data(client, repo_names: list, df: pd.DataFrame, b_column_index
         else:
             print(f"处理中... {repo_name} - 未找到匹配数据。")
             df.iloc[index + 1, start_column_index:start_column_index + 4] = [None] * 4
+
+def save_to_excel(df: pd.DataFrame, file_path: str):
+    """
+    保存修改后的 DataFrame 到 Excel 文件
+    """
+    try:
+        with pd.ExcelWriter(file_path, engine='openpyxl', mode='w') as writer:
+            df.to_excel(writer, index=False, header=False)
+        print(f"结果已成功写入 Excel 文件: {file_path}")
+    except Exception as e:
+        print(f"保存 Excel 文件时发生错误：{e}")

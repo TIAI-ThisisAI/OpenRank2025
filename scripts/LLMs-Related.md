@@ -71,6 +71,17 @@
 
 ---
 
+## 8. Ollama - 本地大模型运行引擎
+
+* **核心简介**：目前最流行的本地大模型运行框架，通过极简的命令行操作，让用户在个人电脑上像使用 Docker 一样部署 LLM。
+* **关键特性**：
+* **开箱即用**：一行命令即可自动下载并运行 Llama 3, Qwen 2.5, DeepSeek 等主流开源模型。
+* **高性能推理**：针对 macOS (Apple Silicon)、Windows (NVIDIA GPU) 和 Linux 进行了深度优化，内存占用低。
+* **标准接口**：原生提供兼容 OpenAI 格式的本地 API 接口，可完美作为 Open WebUI 或 Dify 的后端引擎。
+* **项目地址**：[https://github.com/ollama/ollama](https://github.com/ollama/ollama)
+
+---
+
 ### 💡 工具快速选择指南
 
 | 需求 | 推荐工具 |
@@ -80,4 +91,5 @@
 | **微调自己的专属模型** | **LLaMA-Factory** |
 | **本地运行并研究各种开源模型** | **Text Generation WebUI** |
 | **搭建私有化的 ChatGPT 界面** | **Open WebUI** |
+| **在本地电脑快速运行/部署模型** | **Ollama** |
 | **统一管理不同的模型 API 秘钥** | **One API** |

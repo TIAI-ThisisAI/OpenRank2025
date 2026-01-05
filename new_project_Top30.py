@@ -34,3 +34,25 @@ def extract_repo_names(df: pd.DataFrame, column_index: int) -> list:
     提取指定列的仓库名列表
     """
     return df.iloc[1:, column_index].astype(str).tolist()
+
+
+def generate_sql_query(repo_name: str) -> str:
+    """
+    根据仓库名生成 SQL 查询语句
+    """
+    safe_repo_name = repo_name.strip().replace("'", "''")
+    return f"""
+    SELECT
+        t2.description,
+        t2.primary_language,
+        t2.license,
+        t2.topics
+    FROM
+        opensource.events AS t1
+    LEFT JOIN
+        opensource.gh_repo_info AS t2
+        ON t1.repo_id = t2.id
+    WHERE
+        t1.repo_name = '{safe_repo_name}'
+    LIMIT 1
+    """

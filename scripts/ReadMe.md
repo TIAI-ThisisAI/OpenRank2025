@@ -52,4 +52,4 @@ Curated resources for the modern data stack:
 - **Frontend Developers**: Integrate GlobalPulse\_Analytics\_Pro.jsx into your React application for high-end visualization.  
 - **Researchers**: Refer to the .md files for a deep dive into the technical stack and methodology.
 
-*Maintained by the Data Science & Frontend Design Team.*
+*Maintained by TIAI Team.*

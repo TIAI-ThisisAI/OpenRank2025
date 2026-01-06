@@ -130,6 +130,19 @@ def plot_boxplot(df: pd.DataFrame, column_index: int, title: str = 'Boxplot Dist
     plt.xlabel(df.columns[column_index])
     plt.tight_layout()
 
+# 数据保存
+
+def save_analysis_results(df: pd.DataFrame, output_file: str):
+    """
+    保存分析结果到新的 Excel 文件
+    """
+    try:
+        with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False)
+        print(f"分析结果已成功保存到 '{output_file}'。")
+    except Exception as e:
+        print(f"保存分析结果时发生错误：{e}")
+
 
 
 

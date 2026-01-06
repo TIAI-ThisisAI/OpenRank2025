@@ -143,6 +143,45 @@ def save_analysis_results(df: pd.DataFrame, output_file: str):
     except Exception as e:
         print(f"保存分析结果时发生错误：{e}")
 
+# 主函数
+
+def run_analysis_pipeline(excel_file_path: str, output_file: str, column_index: int, top_n: int = 10):
+    """
+    主流程：执行数据加载、清洗、分析、可视化、保存等任务
+    """
+    # 1. 读取数据
+    df = load_data(excel_file_path)
+    if df is None:
+        return
+
+    # 2. 清洗数据
+    df_cleaned = clean_data(df)
+
+    # 3. 计算统计数据
+    stats = calculate_statistics(df_cleaned, column_index)
+    print("统计数据：", stats)
+
+    # 4. 计算指定分位数
+    percentiles = calculate_percentiles(df_cleaned, column_index, [25, 50, 75])
+    print("分位数数据：", percentiles)
+
+    # 5. 排序并选择排名前 N 的数据
+    top_data = filter_top_n(df_cleaned, column_index, top_n)
+    print(f"排名前 {top_n} 的数据：")
+    print(top_data)
+
+    # 6. 绘制相关性热力图
+    plot_correlation_heatmap(df_cleaned, title="Data Correlation Heatmap")
+
+    # 7. 绘制列数据分布图
+    plot_column_distribution(df_cleaned, column_index, title="Column Distribution")
+
+    # 8. 绘制箱线图
+    plot_boxplot(df_cleaned, column_index, title="Boxplot Distribution")
+
+    # 9. 保存分析结果
+    save_analysis_results(df_cleaned, output_file)
+
 
 
 

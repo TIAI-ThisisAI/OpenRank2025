@@ -68,3 +68,19 @@ def sort_by_column(df: pd.DataFrame, column_index: int, ascending: bool = False)
     """
     return df.sort_values(by=df.columns[column_index], ascending=ascending)
 
+def filter_top_n(df: pd.DataFrame, column_index: int, n: int) -> pd.DataFrame:
+    """
+    过滤出排名前 N 的数据
+    """
+    return df.nlargest(n, df.columns[column_index])
+
+
+def filter_by_threshold(df: pd.DataFrame, column_index: int, threshold: float) -> pd.DataFrame:
+    """
+    过滤出大于指定阈值的行
+    """
+    return df[df.iloc[:, column_index] > threshold]
+
+
+
+

@@ -52,3 +52,19 @@ def calculate_percentiles(df: pd.DataFrame, column_index: int, percentiles: List
     """
     percentiles_values = np.percentile(df.iloc[:, column_index], percentiles)
     return {f"{p}%": value for p, value in zip(percentiles, percentiles_values)}
+
+def summary_statistics(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    计算 DataFrame 中所有数值列的汇总统计数据
+    """
+    return df.describe()
+
+
+# 排序与过滤
+
+def sort_by_column(df: pd.DataFrame, column_index: int, ascending: bool = False) -> pd.DataFrame:
+    """
+    按指定列排序数据
+    """
+    return df.sort_values(by=df.columns[column_index], ascending=ascending)
+

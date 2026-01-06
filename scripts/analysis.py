@@ -81,6 +81,28 @@ def filter_by_threshold(df: pd.DataFrame, column_index: int, threshold: float) -
     """
     return df[df.iloc[:, column_index] > threshold]
 
+# 相关性分析
+
+def calculate_correlation(df: pd.DataFrame, method: str = 'pearson') -> pd.DataFrame:
+    """
+    计算 DataFrame 中所有数值列之间的相关性矩阵
+    """
+    return df.corr(method=method)
+
+
+def plot_correlation_heatmap(df: pd.DataFrame, title: str = 'Correlation Heatmap'):
+    """
+    绘制相关性矩阵的热力图
+    """
+    correlation_matrix = df.corr()
+    plt.figure(figsize=(10, 6))
+    plt.imshow(correlation_matrix, cmap='coolwarm', interpolation='none')
+    plt.title(title)
+    plt.colorbar()
+    plt.xticks(np.arange(correlation_matrix.shape[1]), correlation_matrix.columns, rotation=45)
+    plt.yticks(np.arange(correlation_matrix.shape[0]), correlation_matrix.index)
+    plt.tight_layout()
+    plt.show()
 
 
 

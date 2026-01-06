@@ -30,3 +30,25 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     df_cleaned = df_cleaned[df_cleaned.apply(lambda row: not any([str(val).lower() == 'nan' for val in row]), axis=1)]
     print("数据清洗完成。")
     return df_cleaned
+
+# 基本统计分析
+
+def calculate_statistics(df: pd.DataFrame, column_index: int) -> Dict:
+    """
+    计算指定列的基本统计数据（均值、标准差、最大值、最小值等）
+    """
+    stats = {
+        'mean': df.iloc[:, column_index].mean(),
+        'std': df.iloc[:, column_index].std(),
+        'min': df.iloc[:, column_index].min(),
+        'max': df.iloc[:, column_index].max(),
+    }
+    return stats
+
+
+def calculate_percentiles(df: pd.DataFrame, column_index: int, percentiles: List[float]) -> Dict:
+    """
+    计算指定列的指定分位数（如 25%，50%，75%）
+    """
+    percentiles_values = np.percentile(df.iloc[:, column_index], percentiles)
+    return {f"{p}%": value for p, value in zip(percentiles, percentiles_values)}

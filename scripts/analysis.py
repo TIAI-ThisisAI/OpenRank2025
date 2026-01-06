@@ -104,30 +104,6 @@ def plot_correlation_heatmap(df: pd.DataFrame, title: str = 'Correlation Heatmap
     plt.tight_layout()
     plt.show()
 
-# 可视化
 
-def plot_column_distribution(df: pd.DataFrame, column_index: int, title: str = 'Column Distribution'):
-    """
-    绘制指定列的数据分布图（直方图）
-    """
-    plt.figure(figsize=(10, 6))
-    plt.hist(df.iloc[:, column_index], bins=20, color='skyblue', edgecolor='black')
-    plt.title(title)
-    plt.xlabel(df.columns[column_index])
-    plt.ylabel('Frequency')
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
-
-
-def plot_boxplot(df: pd.DataFrame, column_index: int, title: str = 'Boxplot Distribution'):
-    """
-    绘制指定列的箱线图
-    """
-    plt.figure(figsize=(10, 6))
-    plt.boxplot(df.iloc[:, column_index], vert=False)
-    plt.title(title)
-    plt.xlabel(df.columns[column_index])
-    plt.tight_layout()
 
 

@@ -37,3 +37,15 @@ def extract_years_and_data(data: Dict) -> (List[int], Dict):
     del data['Year']
     print("年份和公司数据提取完成。")
     return years, data
+
+def filter_recent_data(data: Dict, years: List[int]) -> Dict:
+    """
+    过滤出最近两年内至少有一个有排名的公司
+    """
+    recent_years = years[-2:]
+    filtered_data = {
+        company: ranks for company, ranks in data.items()
+        if any(ranks[years.index(y)] is not None for y in recent_years)
+    }
+    print("最近两年有排名的公司已筛选完成。")
+    return filtered_data

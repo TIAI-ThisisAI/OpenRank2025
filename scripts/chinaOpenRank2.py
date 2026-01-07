@@ -11,3 +11,19 @@ def set_plot_font():
     rcParams['font.sans-serif'] = ['SimHei']  # 黑体
     rcParams['axes.unicode_minus'] = False    # 解决负号无法显示的问题
     print("图表字体设置完成。")
+
+def load_json_data(file_path: str) -> Dict:
+    """
+    从 JSON 文件中加载数据
+    """
+    try:
+        with open(file_path, 'r') as f:
+            data = json.load(f)
+        print("数据加载成功。")
+        return data
+    except FileNotFoundError:
+        print(f"错误：未找到文件 '{file_path}'。")
+        return {}
+    except Exception as e:
+        print(f"读取 JSON 文件失败：{e}")
+        return {}

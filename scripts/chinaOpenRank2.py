@@ -27,3 +27,13 @@ def load_json_data(file_path: str) -> Dict:
     except Exception as e:
         print(f"读取 JSON 文件失败：{e}")
         return {}
+
+
+def extract_years_and_data(data: Dict) -> (List[int], Dict):
+    """
+    提取年份和公司数据
+    """
+    years = data.get('Year', [])
+    del data['Year']
+    print("年份和公司数据提取完成。")
+    return years, data

@@ -49,3 +49,15 @@ def filter_recent_data(data: Dict, years: List[int]) -> Dict:
     }
     print("最近两年有排名的公司已筛选完成。")
     return filtered_data
+
+def get_final_year_ranks(filtered_data: Dict, years: List[int]) -> Dict:
+    """
+    获取最后一年的排名，按排名排序
+    """
+    final_year = years[-1]
+    final_year_ranks = {
+        company: ranks[years.index(final_year)] if ranks[years.index(final_year)] is not None else float('inf')
+        for company, ranks in filtered_data.items()
+    }
+    print("最后一年的排名已获取。")
+    return final_year_ranks

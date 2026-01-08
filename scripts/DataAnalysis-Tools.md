@@ -89,6 +89,17 @@
 
 ---
 
+## 10. Looker Studio (Google)
+
+* **核心特点**：
+* **谷歌生态原生**：原名 Google Data Studio，与 Google Analytics (GA4)、Google Ads、YouTube 及 Google Sheets 无缝打通，是海外出海业务及数字营销领域的首选。
+* **纯云端 SaaS**：完全基于 Web，无需任何安装部署，打开浏览器即可使用，且拥有类似 Google Docs 的多人在线实时协作功能。
+* **高度免费**：基础版本功能非常完整且免费，对于不需要企业级管控（Looker Pro）的中小型团队来说，成本极低。
+* **适用场景**：跨境电商、数字营销代理商（Agency）、SEO/SEM 专员，以及主要依赖 Google 生态套件进行轻量级数据汇报的运营团队。
+* **官方链接**：[https://lookerstudio.google.com/](https://lookerstudio.google.com/)
+
+---
+
 ### 表格快速对比：
 
 | 工具名称 | 类型 | 核心优势 | 推荐人群 |
@@ -102,3 +113,4 @@
 | **Superset** | 开源软件 | 云原生、大数据性能巅峰、SQL 强项 | 数据工程师/大数据驱动型企业 |
 | **Quick BI** | 商业软件 | 云原生加速、AI 助手、钉钉飞书集成 | 阿里云用户/电商及互联网行业 |
 | **Grafana** | 开源/商业 | 时间序列、实时监控、极强插件化 | 运维工程师/IoT 开发/实时业务看板 |
+| **Looker Studio** | SaaS 工具 | 谷歌生态整合、免费云端、营销报表 | 市场营销/SEO/跨境电商运营 |

@@ -61,3 +61,11 @@ def get_final_year_ranks(filtered_data: Dict, years: List[int]) -> Dict:
     }
     print("最后一年的排名已获取。")
     return final_year_ranks
+
+def sort_companies_by_final_year_rank(final_year_ranks: Dict) -> List[str]:
+    """
+    按最后一年的排名排序公司
+    """
+    sorted_companies = sorted(final_year_ranks, key=lambda x: (final_year_ranks[x] is None, final_year_ranks[x]))
+    print("公司已按最后一年的排名排序。")
+    return sorted_companies

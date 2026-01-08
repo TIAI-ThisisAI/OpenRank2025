@@ -1,14 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-GitHub Insight Pro - Refactored
--------------------------------
-一个专业的异步 GitHub 仓库贡献者地理分布分析工具。
-具备自动重试、断点续传、本地缓存、并发控制及可视化报告生成功能。
-
-Author: Refactored Assistant
-Date: 2023-10-27
-"""
-
 import asyncio
 import csv
 import json

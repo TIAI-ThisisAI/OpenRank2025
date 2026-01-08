@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-GitHub High-Performance Data Collector (Enterprise Edition)
+GitHub 高性能数据采集系统 
 -----------------------------------------------------------
-核心优势：
-1. GraphQL 驱动：相比 REST API，数据采集效率提升约 8-15 倍。
-2. 工业级存储：基于 SQLite WAL 模式，支持海量数据高并发写入与去重。
-3. 智能容错：内置 Token 熔断机制，自动处理 GitHub API 限流。
-4. 断点续传：支持随时停止任务，下次运行自动从断点处继续。
-
-安装依赖: pip install aiohttp tqdm
+核心特性：
+1. 异步 DB 驱动：使用 aiosqlite 消除数据库 I/O 阻塞。
+2. 管道模式：基于 asyncio.Queue 的生产者-消费者架构，提升海量数据吞吐。
+3. 智能容错：多级重试与 Token 调度算法，自动规避 Secondary Rate Limit。
+4. 内存索引：基于集合的秒级去重，显著降低磁盘开销。
 """
 
 import asyncio
@@ -17,7 +15,6 @@ import json
 import logging
 import os
 import signal
-import sqlite3
 import sys
 import time
 from dataclasses import asdict, dataclass, field
@@ -25,48 +22,82 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-# 检查第三方库
+# 第三方依赖检查
 try:
     import aiohttp
+    import aiosqlite
     from tqdm.asyncio import tqdm
 except ImportError:
-    print("错误: 缺少必要依赖。请执行: pip install aiohttp tqdm")
+    print("错误: 缺少必要依赖。请执行: pip install aiohttp aiosqlite tqdm")
     sys.exit(1)
 
-# ======================== 配置中心 ========================
+# ======================== 核心异常体系 ========================
 
-class Config:
-    GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
-    DB_NAME = "github_data_center.db"
-    LOG_FILE = "gh_collector.log"
-    DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=60)
-    BATCH_SIZE = 100  # 数据库批量写入阈值
-    MAX_RETRIES = 5   # 最大重试次数
+class GitHubCollectorError(Exception):
+    """基础异常类"""
+    pass
 
-    # GraphQL 查询模板：一次性获取提交元数据、作者账号及位置信息
-    GRAPHQL_QUERY = """
+class AuthError(GitHubCollectorError):
+    """身份验证失败"""
+    pass
+
+class RateLimitError(GitHubCollectorError):
+    """触发限流"""
+    pass
+
+# ======================== 数据模型与配置 ========================
+
+@dataclass(frozen=True)
+class CommitRecord:
+    """不可变提交记录模型"""
+    repo_name: str
+    commit_sha: str
+    timestamp_unix: int
+    author_login: str
+    author_name: str
+    author_email: str
+    location: str
+    message: str
+    collected_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    def to_db_row(self) -> Tuple:
+        return (
+            self.commit_sha,
+            self.repo_name,
+            self.author_login,
+            self.timestamp_unix,
+            json.dumps(asdict(self))
+        )
+
+class AppConfig:
+    """系统全局配置"""
+    API_URL = "https://api.github.com/graphql"
+    DB_PATH = "gh_enterprise_v3.db"
+    LOG_FORMAT = "%(asctime)s [%(levelname)s] [%(name)s] %(message)s"
+    
+    # 网络配置
+    CONCURRENT_REPOS = 5      # 同时采集的仓库数量
+    PAGE_SIZE = 100           # 每一页获取的记录数
+    MAX_RETRIES = 5           # 最大重试次数
+    TIMEOUT = aiohttp.ClientTimeout(total=120, connect=10)
+    
+    # 数据库配置
+    WRITE_BATCH_SIZE = 200    # 缓冲区达到此数值后触发批量写入
+    
+    GRAPHQL_TEMPLATE = """
     query($owner: String!, $name: String!, $since: GitTimestamp, $until: GitTimestamp, $cursor: String) {
       repository(owner: $owner, name: $name) {
         defaultBranchRef {
           target {
             ... on Commit {
-              history(first: 100, since: $since, until: $until, after: $cursor) {
-                pageInfo {
-                  endCursor
-                  hasNextPage
-                }
+              history(first: %d, since: $since, until: $until, after: $cursor) {
+                pageInfo { endCursor hasNextPage }
                 edges {
                   node {
-                    oid
-                    message
-                    committedDate
+                    oid message committedDate
                     author {
-                      name
-                      email
-                      user {
-                        login
-                        location
-                      }
+                      name email
+                      user { login location }
                     }
                   }
                 }
@@ -76,312 +107,286 @@ class Config:
         }
       }
     }
-    """
-
-@dataclass
-class CommitRecord:
-    repo_name: str
-    commit_sha: str
-    timestamp_unix: int
-    author_login: str
-    author_name: str
-    author_email: str
-    location: str
-    message: str
-    collected_at: str = field(default_factory=lambda: datetime.now().isoformat())
-
-    def to_flat_dict(self) -> Dict[str, Any]:
-        """展平数据用于导出"""
-        d = asdict(self)
-        # 清洗换行符，防止 CSV 格式崩溃
-        d['message'] = d['message'].replace('\n', ' ').replace('\r', '')[:200]
-        d['location'] = (d['location'] or "").replace('\n', ' ').strip()
-        return d
+    """ % PAGE_SIZE
 
 # ======================== 基础设施层 ========================
 
-class DatabaseManager:
-    """管理 SQLite 存储与去重逻辑"""
-    def __init__(self, db_path: str = Config.DB_NAME):
-        self.db_path = db_path
-        self._init_db()
-
-    def _init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
-            # 开启 WAL 模式提高并发性能
-            conn.execute("PRAGMA journal_mode=WAL")
-            # 提交记录表 (SHA 作为主键实现自动去重)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS commits (
-                    sha TEXT PRIMARY KEY,
-                    repo TEXT,
-                    author_login TEXT,
-                    ts_unix INTEGER,
-                    data_json TEXT
-                )
-            """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_repo ON commits(repo)")
-            conn.commit()
-
-    def check_exists(self, sha: str) -> bool:
-        """检查 SHA 是否已存在"""
-        with sqlite3.connect(self.db_path) as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT 1 FROM commits WHERE sha = ?", (sha,))
-            return cur.fetchone() is not None
-
-    def save_batch(self, records: List[CommitRecord]):
-        """批量持久化"""
-        if not records:
-            return
-        with sqlite3.connect(self.db_path) as conn:
-            data = [
-                (r.commit_sha, r.repo_name, r.author_login, r.timestamp_unix, json.dumps(r.to_flat_dict()))
-                for r in records
-            ]
-            conn.executemany("INSERT OR IGNORE INTO commits VALUES (?,?,?,?,?)", data)
-            conn.commit()
-
-class TokenManager:
-    """带限流熔断机制的 Token 调度器"""
+class TokenPool:
+    """高性能 Token 调度中心"""
     def __init__(self, tokens: List[str]):
-        # 记录每个 Token 的冷却结束时间
         self._tokens = {t.strip(): 0.0 for t in tokens if t.strip()}
         if not self._tokens:
-            raise ValueError("错误: 未配置有效的 GitHub Token")
+            raise AuthError("未配置任何有效的 GitHub Personal Access Token")
         self._lock = asyncio.Lock()
+        self._logger = logging.getLogger("TokenPool")
 
-    async def get_token(self) -> str:
-        """获取当前可用的 Token，若全部冷却则等待"""
+    async def get_best_token(self) -> str:
+        """选择冷却时间最短的可用 Token"""
         async with self._lock:
             while True:
                 now = time.time()
-                # 寻找不在冷却期的 Token
                 available = [t for t, cooldown in self._tokens.items() if now >= cooldown]
                 if available:
-                    # 轮询或随机选择
-                    import random
-                    return random.choice(available)
+                    # 轮询策略
+                    token = available[0]
+                    # 将其排到末尾以平衡负载
+                    self._tokens.pop(token)
+                    self._tokens[token] = 0.0
+                    return token
                 
-                wait_time = min(self._tokens.values()) - now + 1
-                logging.warning(f"所有 Token 均处于限流冷却中，强制休眠 {wait_time:.1f}s...")
-                await asyncio.sleep(max(wait_time, 5))
+                wait_time = min(self._tokens.values()) - now + 0.5
+                self._logger.warning(f"所有 Token 已限流，自动挂起 {wait_time:.1f}s")
+                await asyncio.sleep(max(wait_time, 1))
 
-    def mark_limited(self, token: str, duration: int = 60):
-        """标记 Token 进入冷却期 (例如触发 403 或 429)"""
+    def penalize(self, token: str, duration: int = 600):
+        """对触发错误的 Token 进行惩罚（进入冷却）"""
         self._tokens[token] = time.time() + duration
-        logging.error(f"Token [{token[:10]}...] 触发限流，进入 {duration}s 冷却期")
+        self._logger.error(f"Token [{token[:8]}...] 触发限流，封锁 {duration}s")
+
+class AsyncDatabase:
+    """异步 SQLite 管理器"""
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self._conn: Optional[aiosqlite.Connection] = None
+
+    async def connect(self):
+        self._conn = await aiosqlite.connect(self.db_path)
+        # 高级性能优化
+        await self._conn.execute("PRAGMA journal_mode=WAL")
+        await self._conn.execute("PRAGMA synchronous=NORMAL")
+        await self._conn.execute("PRAGMA cache_size=-64000") # 64MB 缓存
+        
+        await self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS commits (
+                sha TEXT PRIMARY KEY,
+                repo TEXT,
+                author_login TEXT,
+                ts_unix INTEGER,
+                raw_json TEXT
+            )
+        """)
+        await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_repo_ts ON commits(repo, ts_unix)")
+        await self._conn.commit()
+
+    async def get_known_shas(self, repo: str) -> Set[str]:
+        """获取指定仓库已存在的 SHA 缓存"""
+        async with self._conn.execute("SELECT sha FROM commits WHERE repo = ?", (repo,)) as cursor:
+            rows = await cursor.fetchall()
+            return {row[0] for row in rows}
+
+    async def save_batch(self, records: List[CommitRecord]):
+        if not records: return
+        data = [r.to_db_row() for r in records]
+        await self._conn.executemany("INSERT OR IGNORE INTO commits VALUES (?,?,?,?,?)", data)
+        await self._conn.commit()
+
+    async def close(self):
+        if self._conn:
+            await self._conn.close()
 
 # ======================== 核心逻辑层 ========================
 
-class GitHubCollector:
-    def __init__(self, token_mgr: TokenManager, db: DatabaseManager, concurrency: int = 3):
-        self.token_mgr = token_mgr
+class CollectionEngine:
+    """数据采集引擎 (生产者-消费者)"""
+    def __init__(self, token_pool: TokenPool, db: AsyncDatabase):
+        self.token_pool = token_pool
         self.db = db
-        self.sem = asyncio.Semaphore(concurrency)
+        self.data_queue = asyncio.Queue(maxsize=1000)
         self.is_running = True
-        self._setup_signals()
+        self.stats = {"total_saved": 0, "errors": 0}
+        self._logger = logging.getLogger("Engine")
 
-    def _setup_signals(self):
-        """优雅退出处理"""
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            try:
-                signal.signal(sig, self._handle_exit)
-            except ValueError:
-                pass
-
-    def _handle_exit(self, *args):
-        if self.is_running:
-            logging.warning("\n[终止] 正在停止任务并保存已获取的数据...")
-            self.is_running = False
-
-    async def _api_call(self, session: aiohttp.ClientSession, variables: Dict) -> Optional[Dict]:
-        """执行带重试和熔断控制的 API 调用"""
-        for attempt in range(Config.MAX_RETRIES):
+    async def _api_request(self, session: aiohttp.ClientSession, variables: dict) -> Optional[dict]:
+        """封装重试与限流逻辑的原子请求"""
+        for attempt in range(AppConfig.MAX_RETRIES):
             if not self.is_running: return None
             
-            token = await self.token_mgr.get_token()
+            token = await self.token_pool.get_best_token()
             headers = {
                 "Authorization": f"bearer {token}",
-                "Content-Type": "application/json",
-                "User-Agent": "GitHub-Pro-Collector-v2"
+                "User-Agent": "GH-Enterprise-Collector-v3"
             }
-
+            
             try:
-                async with session.post(
-                    Config.GITHUB_GRAPHQL_URL,
-                    json={"query": Config.GRAPHQL_QUERY, "variables": variables},
-                    headers=headers,
-                    timeout=Config.DEFAULT_TIMEOUT
-                ) as resp:
+                async with session.post(AppConfig.API_URL, json={
+                    "query": AppConfig.GRAPHQL_TEMPLATE, 
+                    "variables": variables
+                }, headers=headers, timeout=AppConfig.TIMEOUT) as resp:
+                    
                     if resp.status == 200:
                         res_json = await resp.json()
-                        # 检查 GraphQL 内部错误
                         if "errors" in res_json:
                             err_msg = str(res_json["errors"])
-                            if "rate limit" in err_msg.lower() or "RATE_LIMITED" in err_msg:
-                                self.token_mgr.mark_limited(token, 300)
+                            if "rate limit" in err_msg.lower():
+                                self.token_pool.penalize(token, 300)
                                 continue
-                            logging.error(f"GraphQL 解析错误: {err_msg[:200]}")
+                            self._logger.error(f"GraphQL 逻辑错误: {err_msg[:200]}")
                             return None
                         return res_json
                     
                     if resp.status in (403, 429):
                         retry_after = int(resp.headers.get("Retry-After", 60))
-                        self.token_mgr.mark_limited(token, retry_after)
+                        self.token_pool.penalize(token, retry_after)
                         continue
-                    
-                    logging.warning(f"HTTP {resp.status} 异常，重试中 ({attempt+1}/{Config.MAX_RETRIES})")
+                        
+                    self._logger.warning(f"HTTP {resp.status} 重试中 ({attempt+1})")
             except Exception as e:
-                logging.debug(f"连接异常: {e}")
+                self._logger.debug(f"连接异常: {type(e).__name__}")
             
             await asyncio.sleep(2 ** attempt)
         return None
 
-    async def collect_repository(self, repo_full_name: str, since: datetime, until: datetime, pbar: tqdm):
-        """采集单个仓库"""
-        if "/" not in repo_full_name: return
-        owner, name = repo_full_name.split("/")
+    async def repository_worker(self, repo_name: str, since: datetime, until: datetime, pbar: tqdm):
+        """生产者：负责从 GitHub 抓取数据并推入队列"""
+        if "/" not in repo_name: return
+        owner, name = repo_name.split("/")
+        
+        # 加载内存去重缓存
+        known_shas = await self.db.get_known_shas(repo_name)
         
         variables = {
-            "owner": owner,
-            "name": name,
-            "since": since.isoformat(),
-            "until": until.isoformat(),
+            "owner": owner, "name": name,
+            "since": since.isoformat(), "until": until.isoformat(),
             "cursor": None
         }
 
-        async with self.sem:
-            async with aiohttp.ClientSession() as session:
-                while self.is_running:
-                    data = await self._api_call(session, variables)
-                    if not data: break
-
-                    try:
-                        repo_data = data.get("data", {}).get("repository")
-                        if not repo_data or not repo_data.get("defaultBranchRef"):
-                            logging.warning(f"[{repo_full_name}] 仓库不存在、为空或无权访问")
-                            break
-
-                        history = repo_data["defaultBranchRef"]["target"]["history"]
-                        edges = history.get("edges", [])
+        async with aiohttp.ClientSession() as session:
+            while self.is_running:
+                data = await self._api_request(session, variables)
+                if not data: break
+                
+                try:
+                    target = data.get("data", {}).get("repository", {}).get("defaultBranchRef", {}).get("target")
+                    if not target: break
+                    
+                    history = target.get("history", {})
+                    edges = history.get("edges", [])
+                    
+                    batch = []
+                    for edge in edges:
+                        node = edge["node"]
+                        sha = node["oid"]
                         
-                        current_batch = []
-                        for edge in edges:
-                            node = edge["node"]
-                            sha = node["oid"]
+                        if sha in known_shas: continue # 内存级去重
+                        
+                        author_info = node.get("author", {})
+                        user_node = author_info.get("user") or {}
+                        
+                        record = CommitRecord(
+                            repo_name=repo_name,
+                            commit_sha=sha,
+                            timestamp_unix=int(datetime.fromisoformat(node["committedDate"].replace("Z", "+00:00")).timestamp()),
+                            author_login=user_node.get("login") or "ghost",
+                            author_name=author_info.get("name") or "Unknown",
+                            author_email=author_info.get("email") or "",
+                            location=user_node.get("location") or "",
+                            message=node["message"][:500]
+                        )
+                        batch.append(record)
+                        known_shas.add(sha)
+                    
+                    if batch:
+                        await self.data_queue.put(batch)
+                        pbar.update(len(batch))
 
-                            # 断点续传：如果数据库已有此 SHA，则跳过
-                            if self.db.check_exists(sha):
-                                continue
-
-                            author_info = node.get("author", {})
-                            user_node = author_info.get("user") or {}
-
-                            record = CommitRecord(
-                                repo_name=repo_full_name,
-                                commit_sha=sha,
-                                timestamp_unix=int(datetime.fromisoformat(node["committedDate"].replace("Z", "+00:00")).timestamp()),
-                                author_login=user_node.get("login") or "ghost-user",
-                                author_name=author_info.get("name") or "Unknown",
-                                author_email=author_info.get("email") or "",
-                                location=user_node.get("location") or "",
-                                message=node["message"]
-                            )
-                            current_batch.append(record)
-
-                        # 批量保存
-                        self.db.save_batch(current_batch)
-                        pbar.update(len(current_batch))
-
-                        # 分页逻辑
-                        page_info = history.get("pageInfo", {})
-                        if page_info.get("hasNextPage") and self.is_running:
-                            variables["cursor"] = page_info.get("endCursor")
-                        else:
-                            break
-                    except Exception as e:
-                        logging.error(f"[{repo_full_name}] 解析异常: {e}")
+                    page_info = history.get("pageInfo", {})
+                    if page_info.get("hasNextPage") and self.is_running:
+                        variables["cursor"] = page_info.get("endCursor")
+                    else:
                         break
+                except Exception as e:
+                    self._logger.error(f"解析 {repo_name} 时发生异常: {e}")
+                    break
 
-# ======================== 工具与运行层 ========================
+    async def storage_worker(self):
+        """消费者：负责将队列中的数据批量刷入磁盘"""
+        buffer = []
+        while self.is_running or not self.data_queue.empty():
+            try:
+                # 带有超时的等待，确保在停止任务时能及时响应
+                batch = await asyncio.wait_for(self.data_queue.get(), timeout=2.0)
+                buffer.extend(batch)
+                
+                if len(buffer) >= AppConfig.WRITE_BATCH_SIZE:
+                    await self.db.save_batch(buffer)
+                    self.stats["total_saved"] += len(buffer)
+                    buffer = []
+                
+                self.data_queue.task_done()
+            except asyncio.TimeoutError:
+                if buffer:
+                    await self.db.save_batch(buffer)
+                    self.stats["total_saved"] += len(buffer)
+                    buffer = []
+                continue
 
-class Reporter:
-    @staticmethod
-    def generate_csv(db_path: str, output_path: str):
-        """将 SQLite 数据导出为 CSV"""
-        with sqlite3.connect(db_path) as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT data_json FROM commits")
-            rows = cur.fetchall()
-            
-            if not rows:
-                print("警告: 数据库中没有可导出的数据")
-                return
+# ======================== 任务管理与入口 ========================
 
-            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-            with open(output_path, 'w', encoding='utf-8-sig', newline='') as f:
-                first_row = json.loads(rows[0][0])
-                writer = csv.DictWriter(f, fieldnames=first_row.keys())
-                writer.writeheader()
-                for r in rows:
-                    writer.writerow(json.loads(r[0]))
+class Application:
+    def __init__(self, repos: List[str], tokens: List[str], days: int):
+        self.repos = repos
+        self.tokens = tokens
+        self.days = days
+        self.db = AsyncDatabase(AppConfig.DB_PATH)
+        self.tp = TokenPool(tokens)
+        self.engine = CollectionEngine(self.tp, self.db)
+
+    def _setup_logging(self):
+        logging.basicConfig(level=logging.INFO, format=AppConfig.LOG_FORMAT)
+
+    async def run(self):
+        self._setup_logging()
+        await self.db.connect()
         
-        print(f"✅ 数据成功导出至: {output_path}")
+        # 时间窗口
+        until = datetime.now(timezone.utc)
+        since = until - timedelta(days=self.days)
+        
+        # 信号处理
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, lambda: setattr(self.engine, 'is_running', False))
 
-    @staticmethod
-    def generate_stats(db_path: str):
-        """生成统计简报"""
-        with sqlite3.connect(db_path) as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT count(*), count(CASE WHEN json_extract(data_json, '$.location') != '' THEN 1 END) FROM commits")
-            total, with_loc = cur.fetchone()
-            
-            print("\n" + "="*30)
-            print(f"采集概览报告")
-            print(f"总计记录数: {total}")
-            print(f"有效位置数: {with_loc}")
-            print(f"位置覆盖率: {(with_loc/total*100 if total > 0 else 0):.2f}%")
-            print("="*30 + "\n")
+        print(f"🚀 任务启动 | 目标仓库: {len(self.repos)} | 追溯时长: {self.days}天")
+        
+        # 启动持久化消费者
+        storage_task = asyncio.create_task(self.engine.storage_worker())
+        
+        # 启动并发生产者
+        start_time = time.time()
+        semaphore = asyncio.Semaphore(AppConfig.CONCURRENT_REPOS)
+        
+        async def sem_worker(repo, pbar):
+            async with semaphore:
+                await self.engine.repository_worker(repo, since, until, pbar)
+
+        with tqdm(desc="数据抓取进度", unit="条") as pbar:
+            tasks = [sem_worker(repo, pbar) for repo in self.repos]
+            await asyncio.gather(*tasks)
+
+        # 等待数据全部落盘
+        self.engine.is_running = False
+        await storage_task
+        await self.db.close()
+        
+        elapsed = time.time() - start_time
+        print(f"\n✅ 采集完成! ")
+        print(f"总计持久化: {self.engine.stats['total_saved']} 条记录")
+        print(f"有效耗时: {elapsed:.2f} 秒")
+        print(f"平均吞吐: {self.engine.stats['total_saved']/elapsed:.1f} 条/秒")
+
+# ======================== 启动逻辑 ========================
 
 async def main():
     import argparse
-    parser = argparse.ArgumentParser(description="GitHub Pro Collector v2")
-    parser.add_argument("--repos", nargs="+", required=True, help="仓库列表 (例如: facebook/react)")
-    parser.add_argument("--tokens", nargs="+", required=True, help="GitHub Tokens (支持多个)")
-    parser.add_argument("--days", type=int, default=30, help="回溯天数")
-    parser.add_argument("--concurrency", type=int, default=3, help="并发仓库数")
-    parser.add_argument("--output", default="output/github_commits.csv", help="CSV 输出路径")
+    parser = argparse.ArgumentParser(description="GitHub Enterprise Collector v3")
+    parser.add_argument("--repos", nargs="+", required=True)
+    parser.add_argument("--tokens", nargs="+", required=True)
+    parser.add_argument("--days", type=int, default=30)
     args = parser.parse_args()
 
-    # 初始化日志
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[logging.FileHandler(Config.LOG_FILE), logging.StreamHandler()]
-    )
-
-    db = DatabaseManager()
-    tm = TokenManager(args.tokens)
-    collector = GitHubCollector(tm, db, concurrency=args.concurrency)
-
-    # 时间范围
-    until = datetime.now(timezone.utc)
-    since = until - timedelta(days=args.days)
-
-    print(f"🚀 启动采集任务 | 目标天数: {args.days} | 仓库数: {len(args.repos)}")
-    
-    start_time = time.time()
-    with tqdm(desc="正在采集提交", unit="条") as pbar:
-        tasks = [collector.collect_repository(r, since, until, pbar) for r in args.repos]
-        await asyncio.gather(*tasks)
-    
-    duration = time.time() - start_time
-    print(f"\n🎉 采集结束，耗时: {duration:.1f}s")
-    
-    # 报告与导出
-    Reporter.generate_stats(Config.DB_NAME)
-    Reporter.generate_csv(Config.DB_NAME, args.output)
+    app = Application(args.repos, args.tokens, args.days)
+    await app.run()
 
 if __name__ == "__main__":
     try:

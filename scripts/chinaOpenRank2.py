@@ -69,3 +69,25 @@ def sort_companies_by_final_year_rank(final_year_ranks: Dict) -> List[str]:
     sorted_companies = sorted(final_year_ranks, key=lambda x: (final_year_ranks[x] is None, final_year_ranks[x]))
     print("公司已按最后一年的排名排序。")
     return sorted_companies
+
+def plot_openrank_trends(years: List[int], filtered_data: Dict, sorted_companies: List[str]):
+    """
+    绘制企业的 OpenRank 趋势折线图
+    """
+    plt.figure(figsize=(14, 8))
+    
+    for company in sorted_companies:
+        ranks = filtered_data[company]
+        plt.plot(years, ranks, marker='o', label=company)
+    
+    plt.gca().invert_yaxis()  # 反转 y 轴，使排名 1 在顶部
+    plt.xticks(years)
+    plt.yticks(range(1, 16))
+    plt.title('Chinese Enterprise 2015~2024 OpenRank')
+    plt.xlabel('Time')
+    plt.ylabel('Rank')
+    plt.legend(title='symbol', bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+    print("OpenRank 趋势图绘制完成。")

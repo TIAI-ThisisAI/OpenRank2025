@@ -91,3 +91,30 @@ def plot_openrank_trends(years: List[int], filtered_data: Dict, sorted_companies
     plt.tight_layout()
     plt.show()
     print("OpenRank 趋势图绘制完成。")
+
+def run_openrank_analysis(file_path: str):
+    """
+    主函数：执行从数据加载、处理、排序到绘图的完整分析流程
+    """
+    # 设置图表字体
+    set_plot_font()
+
+    # 1. 加载数据
+    data = load_json_data(file_path)
+    if not data:
+        return
+
+    # 2. 提取年份和公司数据
+    years, filtered_data = extract_years_and_data(data)
+
+    # 3. 过滤出最近两年内至少有排名的公司
+    filtered_data = filter_recent_data(filtered_data, years)
+
+    # 4. 获取最后一年的排名
+    final_year_ranks = get_final_year_ranks(filtered_data, years)
+
+    # 5. 按最后一年的排名排序公司
+    sorted_companies = sort_companies_by_final_year_rank(final_year_ranks)
+
+    # 6. 绘制趋势图
+    plot_openrank_trends(years, filtered_data, sorted_companies)

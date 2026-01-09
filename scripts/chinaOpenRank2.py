@@ -157,6 +157,14 @@ def get_stable_top_companies(data: dict, years: list, top_k: int = 10, min_years
 
     return stable_companies
 
+def analyze_all_trends(data: dict) -> dict:
+    """
+    对所有公司进行趋势分类
+    """
+    return {
+        company: classify_rank_trend(ranks)
+        for company, ranks in data.items()
+    }
 
 
 if __name__ == "__main__":

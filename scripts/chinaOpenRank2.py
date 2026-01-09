@@ -142,6 +142,20 @@ def analyze_all_volatility(data: dict) -> dict:
         for company, ranks in data.items()
     }
 
+def get_stable_top_companies(data: dict, years: list, top_k: int = 10, min_years: int = 5) -> list:
+    """
+    筛选在至少 min_years 年内保持 Top-K 的公司
+    """
+    stable_companies = []
+
+    for company, ranks in data.items():
+        count = sum(
+            1 for r in ranks if r is not None and r <= top_k
+        )
+        if count >= min_years:
+            stable_companies.append(company)
+
+    return stable_companies
 
 
 

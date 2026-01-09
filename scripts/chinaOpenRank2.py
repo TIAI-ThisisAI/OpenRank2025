@@ -194,6 +194,14 @@ def extract_recent_years(data: dict, years: list, window: int = 5) -> tuple:
     }
     return recent_years, recent_data
 
+def compute_recent_average_rank(company_ranks: list) -> float:
+    """
+    计算近 N 年的平均排名
+    """
+    valid = [r for r in company_ranks if r is not None]
+    return sum(valid) / len(valid) if valid else float('inf')
+
+
 
 if __name__ == "__main__":
     FILE_PATH = 'openrank_chart_Chinese_data_2.json'

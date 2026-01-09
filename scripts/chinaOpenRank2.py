@@ -133,6 +133,17 @@ def compute_rank_volatility(company_ranks: list) -> float:
     ]
     return sum(diffs) / len(diffs)
 
+def analyze_all_volatility(data: dict) -> dict:
+    """
+    计算所有公司的排名波动性
+    """
+    return {
+        company: compute_rank_volatility(ranks)
+        for company, ranks in data.items()
+    }
+
+
+
 
 if __name__ == "__main__":
     FILE_PATH = 'openrank_chart_Chinese_data_2.json'

@@ -183,6 +183,16 @@ def classify_rank_trend(company_ranks: list) -> str:
     else:
         return "stable"
 
+def extract_recent_years(data: dict, years: list, window: int = 5) -> tuple:
+    """
+    提取最近 window 年的数据
+    """
+    recent_years = years[-window:]
+    recent_data = {
+        company: ranks[-window:]
+        for company, ranks in data.items()
+    }
+    return recent_years, recent_data
 
 
 if __name__ == "__main__":

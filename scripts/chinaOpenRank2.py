@@ -118,3 +118,10 @@ def run_openrank_analysis(file_path: str):
 
     # 6. 绘制趋势图
     plot_openrank_trends(years, filtered_data, sorted_companies)
+
+if __name__ == "__main__":
+    FILE_PATH = 'openrank_chart_Chinese_data_2.json'
+    
+    # 执行完整的分析流程
+    run_openrank_analysis(FILE_PATH)
+

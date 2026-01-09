@@ -201,6 +201,22 @@ def compute_recent_average_rank(company_ranks: list) -> float:
     valid = [r for r in company_ranks if r is not None]
     return sum(valid) / len(valid) if valid else float('inf')
 
+def build_analysis_summary(data: dict, years: list) -> dict:
+    """
+    构建综合分析结果摘要
+    """
+    volatility = analyze_all_volatility(data)
+    trends = analyze_all_trends(data)
+
+    return {
+        company: {
+            "volatility": volatility.get(company, 0),
+            "trend": trends.get(company, "unknown"),
+            "latest_rank": ranks[-1] if ranks else None
+        }
+        for company, ranks in data.items()
+    }
+
 
 
 if __name__ == "__main__":

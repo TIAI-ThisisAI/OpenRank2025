@@ -8,6 +8,8 @@
 
 **队伍名称：** ThisisAI
 
+<img width="60" height="60" alt="image" src="https://github.com/user-attachments/assets/7ec83070-2e8e-4188-8e8b-22559cf5590b" />
+
 **队员介绍**
 
 <img width="50" height="50" alt="image" src="https://github.com/user-attachments/assets/b9a58cc3-e9fd-4e41-a312-af17393b3a98" /> <img width="50" height="50" alt="image" src="https://github.com/user-attachments/assets/3789bc09-9f9c-4c20-aa26-bfb3fa82d7c0" /> <img width="50" height="50" alt="image" src="https://github.com/user-attachments/assets/aaba86cc-cdf6-41d2-9e09-be400515955a" />

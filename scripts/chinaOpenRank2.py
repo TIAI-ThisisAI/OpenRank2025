@@ -158,6 +158,24 @@ def get_stable_top_companies(data: dict, years: list, top_k: int = 10, min_years
     return stable_companies
 
 
+def classify_rank_trend(company_ranks: list) -> str:
+    """
+    判断公司排名趋势：improving / declining / volatile
+    """
+    valid_ranks = [r for r in company_ranks if r is not None]
+    if len(valid_ranks) < 3:
+        return "insufficient_data"
+
+    start, end = valid_ranks[0], valid_ranks[-1]
+
+    if end < start:
+        return "improving"
+    elif end > start:
+        return "declining"
+    else:
+        return "stable"
+
+
 
 if __name__ == "__main__":
     FILE_PATH = 'openrank_chart_Chinese_data_2.json'

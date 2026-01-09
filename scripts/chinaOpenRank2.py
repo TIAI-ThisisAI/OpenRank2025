@@ -119,6 +119,21 @@ def run_openrank_analysis(file_path: str):
     # 6. 绘制趋势图
     plot_openrank_trends(years, filtered_data, sorted_companies)
 
+def compute_rank_volatility(company_ranks: list) -> float:
+    """
+    计算单个公司历年排名的波动性（平均绝对变化幅度）
+    """
+    valid_ranks = [r for r in company_ranks if r is not None]
+    if len(valid_ranks) < 2:
+        return 0.0
+
+    diffs = [
+        abs(valid_ranks[i] - valid_ranks[i - 1])
+        for i in range(1, len(valid_ranks))
+    ]
+    return sum(diffs) / len(diffs)
+
+
 if __name__ == "__main__":
     FILE_PATH = 'openrank_chart_Chinese_data_2.json'
     

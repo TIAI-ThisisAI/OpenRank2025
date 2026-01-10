@@ -1,22 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Gemini 地理信息标准化专业版 (GeoStandardizer Pro)
-
-功能描述:
-    利用 Google Gemini API 将非结构化的地名列表清洗为标准的结构化地理数据。
-    具备高性能并发、本地 SQLite 缓存、断点续传及详细的统计报告功能。
-
-架构设计:
-    - Config: 配置管理
-    - StorageEngine: 数据持久化层 (SQLite)
-    - GeminiClient: API 交互层 (Async HTTP)
-    - IOHandler: 文件输入输出处理
-    - BatchProcessor: 核心工作流控制器
-
-依赖:
-    pip install aiohttp tqdm
-"""
-
 import asyncio
 import csv
 import json
@@ -26,6 +7,8 @@ import signal
 import sqlite3
 import sys
 import time
+import re
+import platform
 from argparse import ArgumentParser, RawTextHelpFormatter
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -45,7 +28,7 @@ except ImportError:
 API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 ENV_API_KEY_NAME = "GEMINI_API_KEY"
 
-# 定义严格的输出 Schema，确保模型返回格式可控
+# 定义严格的输出 Schema
 LOCATION_RESPONSE_SCHEMA = {
     "type": "ARRAY",
     "items": {
@@ -105,7 +88,9 @@ class GeoRecord:
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
-        d['updated_at'] = d['updated_at'].isoformat()
+        # 处理 datetime 序列化
+        if isinstance(d['updated_at'], datetime):
+            d['updated_at'] = d['updated_at'].isoformat()
         return d
 
 @dataclass
@@ -134,7 +119,6 @@ def setup_logger(verbose: bool) -> logging.Logger:
     logger = logging.getLogger("GeoStandardizer")
     level = logging.DEBUG if verbose else logging.INFO
     
-    # 清除旧的 handlers
     if logger.handlers:
         logger.handlers.clear()
         
@@ -217,7 +201,7 @@ class StorageEngine:
                         country_alpha3=data.get('country_alpha3', 'UNK'),
                         confidence=data.get('confidence', 0.0),
                         reasoning=data.get('reasoning', ''),
-                        updated_at=data['updated_at'] # 保持原始字符串或转换皆可，此处主要用于展示
+                        updated_at=data['updated_at']
                     )
             except sqlite3.Error as e:
                 self.logger.error(f"数据库读取错误: {e}")
@@ -322,7 +306,16 @@ class GeminiClient:
             if not candidates:
                 raise ValueError("No candidates returned")
             
-            content_text = candidates[0]['content']['parts'][0]['text']
+            content_part = candidates[0]['content']['parts'][0]
+            content_text = content_part.get('text', '')
+            
+            # 修复：健壮的 JSON 提取逻辑
+            # 有时模型会返回 ```json ... ```，即使已经指定了 MIME type
+            if "```" in content_text:
+                content_text = re.sub(r'```json\s*', '', content_text)
+                content_text = re.sub(r'```\s*$', '', content_text)
+                content_text = content_text.strip()
+
             raw_data = json.loads(content_text)
             
             # 建立映射以防乱序
@@ -345,6 +338,7 @@ class GeminiClient:
                     
         except Exception as e:
             self.logger.error(f"响应解析失败: {e}")
+            self.logger.debug(f"Failed response content: {api_response}")
             # 解析失败则全部回退
             return [self._create_fallback_record(loc, f"Parse error: {str(e)}") for loc in original_batch]
             
@@ -386,6 +380,8 @@ class IOHandler:
                     
                     # 智能判断列名：如果指定的列不存在，尝试使用第一列
                     target_col = column if column in reader.fieldnames else reader.fieldnames[0]
+                    if target_col != column:
+                        print(f"⚠️ 警告: 列 '{column}' 未找到，使用 '{target_col}' 代替。")
                     
                     for row in reader:
                         if val := row.get(target_col):
@@ -441,9 +437,12 @@ class BatchProcessor:
         self.client = GeminiClient(config, self.logger)
         self.is_running = True
         
-        # 信号注册
-        signal.signal(signal.SIGINT, self._shutdown)
-        signal.signal(signal.SIGTERM, self._shutdown)
+        # 信号注册 (Windows 下信号支持有限，添加 try-except)
+        try:
+            signal.signal(signal.SIGINT, self._shutdown)
+            signal.signal(signal.SIGTERM, self._shutdown)
+        except AttributeError:
+            pass
 
     def _shutdown(self, sig, frame):
         if self.is_running:
@@ -512,8 +511,9 @@ class BatchProcessor:
                             )
                             tasks.append(task)
                         
-                        # 等待所有任务完成
-                        await asyncio.gather(*tasks)
+                        # 修复：await 必须在循环外部，否则无法实现真正的并发
+                        if tasks:
+                            await asyncio.gather(*tasks)
             
             # 4. 结果整合与导出
             if self.is_running:
@@ -545,6 +545,10 @@ class BatchProcessor:
 # ======================== 入口函数 ========================
 
 def main():
+    # 针对 Windows 系统的 asyncio 策略修复
+    if platform.system() == 'Windows':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
     parser = ArgumentParser(description="Gemini 地理标准化引擎 (专业版)", formatter_class=RawTextHelpFormatter)
     
     # 基础参数
@@ -596,7 +600,7 @@ def main():
     try:
         asyncio.run(processor.run())
     except KeyboardInterrupt:
-        pass  # 已由信号处理程序处理，此处只需捕获以避免打印堆栈
+        pass  # 已由信号处理程序处理
 
 if __name__ == "__main__":
     main()

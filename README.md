@@ -35,6 +35,8 @@
 ## 作品题目
 **The Global Pulse of Code: A Framework for Evaluating the Globalization of Open Source Projects**
 
+相关成果已经发表在： The 17th BenchCouncil International Symposium On Evaluation Science and Engineering (Bench 2025) 
+
 ## 实现思路
 
 ## 成果展示

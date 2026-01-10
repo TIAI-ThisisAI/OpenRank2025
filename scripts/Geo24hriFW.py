@@ -362,7 +362,7 @@ class Application:
 # ======================== 入口 ========================
 
 if __name__ == "__main__":
-    # 示例仓库列表
+    # 仓库列表
     target_repos = [
         "python/cpython",
         "torvalds/linux", 

@@ -9,7 +9,7 @@ import sys
 import time
 import argparse
 import webbrowser
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, asdict, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -25,8 +25,13 @@ try:
     from tqdm.asyncio import tqdm
 except ImportError as e:
     print(f"CRITICAL ERROR: 缺少必要依赖库: {e.name}")
-    print("请运行: pip install aiohttp tqdm PyYAML")
+    print("请运行: pip install -r requirements.txt")
+    print("或者: pip install aiohttp tqdm PyYAML")
     sys.exit(1)
+
+# [FIX] Windows 平台下的 asyncio 兼容性设置
+if sys.platform.startswith('win'):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # -----------------------------------------------------------------------------
 # 配置与常量 (Configuration)
@@ -44,7 +49,8 @@ class AppConfig:
     # 常量定义
     GITHUB_API_BASE: str = "https://api.github.com"
     NOMINATIM_API: str = "https://nominatim.openstreetmap.org/search"
-    USER_AGENT: str = "GitHub-Insight-Pro/2.0 (Research Purpose)"
+    # 修改 UA 格式以更好地符合 Nominatim 规范
+    USER_AGENT: str = "GitHub-Insight-Bot/2.0 (research-purpose)"
 
 # -----------------------------------------------------------------------------
 # 日志系统 (Logging)
@@ -118,7 +124,11 @@ class StorageManager:
     
     def __init__(self, db_path: str):
         self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            logger.error(f"无法创建数据库目录: {e}")
+            sys.exit(1)
         self._init_schema()
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -236,34 +246,44 @@ class StorageManager:
 # 服务层 (Service Layer)
 # -----------------------------------------------------------------------------
 class GeoService:
-    """处理地理编码逻辑，包含缓存策略"""
+    """处理地理编码逻辑，包含二级缓存策略 (内存 + DB)"""
     
     def __init__(self, session: aiohttp.ClientSession, storage: StorageManager, config: AppConfig):
         self.session = session
         self.storage = storage
         self.config = config
-        # Nominatim 严格限制每秒 1 次请求，这里使用 Semaphore 控制
         self._rate_limiter = asyncio.Semaphore(1)
+        self._mem_cache = {} # [FIX] 一级内存缓存
 
     async def resolve(self, location_str: str) -> Dict[str, Any]:
-        """解析位置字符串，优先读缓存，失败则调用 API"""
+        """解析位置字符串，内存 -> DB -> API"""
         empty_res = {"country_code": "UNKNOWN", "city": "", "lat": 0.0, "lon": 0.0}
         
         if not location_str or not location_str.strip():
             return empty_res
 
-        # 1. 查缓存
+        # 0. 查内存缓存
+        if location_str in self._mem_cache:
+            return self._mem_cache[location_str]
+
+        # 1. 查数据库缓存
         cached = self.storage.get_geo_cache(location_str)
         if cached:
+            self._mem_cache[location_str] = cached
             return cached
 
         # 2. 调用 API
-        return await self._fetch_from_api(location_str)
+        result = await self._fetch_from_api(location_str)
+        
+        # 更新两级缓存
+        self.storage.save_geo_cache(location_str, result)
+        self._mem_cache[location_str] = result
+        
+        return result
 
     @async_retry(retries=2, delay=2)
     async def _fetch_from_api(self, query: str) -> Dict[str, Any]:
         async with self._rate_limiter:
-            # 遵守 Nominatim 使用策略：必须包含 User-Agent，限制速率
             params = {"q": query, "format": "json", "limit": 1, "accept-language": "en"}
             headers = {"User-Agent": self.config.USER_AGENT}
             
@@ -273,15 +293,16 @@ class GeoService:
                     return {"country_code": "UNKNOWN", "city": "", "lat": 0.0, "lon": 0.0}
                 
                 data = await resp.json()
-                await asyncio.sleep(1.1) # 强制冷却，确保不超过 1 RPS
+                # 严格遵守 Nominatim 策略：请求间隔至少 1 秒
+                await asyncio.sleep(1.1) 
 
                 result = {"country_code": "UNKNOWN", "city": "unknown", "lat": 0.0, "lon": 0.0}
                 
-                if data:
+                if data and isinstance(data, list) and len(data) > 0:
                     item = data[0]
                     display_name = item.get("display_name", "")
-                    # 简单的启发式解析国家代码
                     parts = display_name.split(",")
+                    # 尝试从最后一部分提取国家代码，并不完美但够用
                     country_code = parts[-1].strip().upper()[:3] if parts else "UNKNOWN"
                     
                     result = {
@@ -291,8 +312,6 @@ class GeoService:
                         "lon": float(item.get("lon", 0))
                     }
                 
-                # 写入缓存（即使是空结果也缓存，防止重复无效查询）
-                self.storage.save_geo_cache(query, result)
                 return result
 
 class GitHubService:
@@ -307,6 +326,8 @@ class GitHubService:
             "Accept": "application/vnd.github.v3+json",
             "User-Agent": config.USER_AGENT
         }
+        # [FIX] 关键优化：用户位置信息内存缓存，避免对同一个用户重复调用 API
+        self._user_info_cache: Dict[str, str] = {}
 
     async def _handle_rate_limit(self, resp: aiohttp.ClientResponse):
         """处理 GitHub 速率限制"""
@@ -322,14 +343,30 @@ class GitHubService:
 
     @async_retry()
     async def get_user_location(self, username: str) -> str:
+        # 1. 检查缓存
+        if username in self._user_info_cache:
+            return self._user_info_cache[username]
+
+        # 2. 发起请求
         url = f"{self.config.GITHUB_API_BASE}/users/{username}"
         async with self.session.get(url, headers=self.base_headers) as resp:
             if await self._handle_rate_limit(resp):
-                return await self.get_user_location(username) # Retry logic handles recursion depth implicitly via decorator
+                return await self.get_user_location(username)
+            
             if resp.status == 404:
+                self._user_info_cache[username] = ""
                 return ""
+            
+            if resp.status != 200:
+                logger.warning(f"获取用户信息失败 [{resp.status}]: {username}")
+                return ""
+
             data = await resp.json()
-            return data.get("location") or ""
+            location = data.get("location") or ""
+            
+            # 3. 写入缓存
+            self._user_info_cache[username] = location
+            return location
 
     async def fetch_commits(self, repo: str, since: datetime) -> AsyncGenerator[List[Dict], None]:
         """生成器模式获取 Commit 批次"""
@@ -340,7 +377,11 @@ class GitHubService:
             try:
                 async with self.session.get(url, headers=self.base_headers, params=params) as resp:
                     if await self._handle_rate_limit(resp):
-                        continue # Retry same page
+                        continue
+                    
+                    if resp.status == 404:
+                        logger.error(f"仓库不存在或无权限: {repo}")
+                        break
                     
                     if resp.status != 200:
                         logger.error(f"获取 {repo} 失败: HTTP {resp.status}")
@@ -384,7 +425,7 @@ class InsightEngine:
             tasks = [self._process_single_repo(p, since_date) for p in projects]
             
             # 使用 tqdm 显示总体进度
-            await tqdm.gather(*tasks, desc="Repositories Analysis", unit="repo")
+            await tqdm.gather(*tasks, desc="Analysis Progress", unit="repo")
             
             logger.info("所有仓库分析完成，生成报告中...")
             self._generate_report()
@@ -392,11 +433,13 @@ class InsightEngine:
     async def _process_single_repo(self, repo: str, since: datetime):
         """处理单个仓库：获取Commit -> 过滤 -> 补全Geo -> 存储"""
         new_commits_buffer = []
+        commit_count = 0
         
         async for batch in self.gh_service.fetch_commits(repo, since):
             for item in batch:
-                sha = item['sha']
-                
+                sha = item.get('sha')
+                if not sha: continue
+
                 # 跳过已处理或无作者信息的提交
                 if self.storage.is_commit_exists(sha) or not item.get('author'):
                     continue
@@ -406,10 +449,10 @@ class InsightEngine:
                     item['commit']['author']['date'].replace("Z", "+00:00")
                 ).timestamp()
 
-                # 1. 获取用户位置 (Raw)
+                # 1. 获取用户位置 (包含缓存优化)
                 raw_loc = await self.gh_service.get_user_location(author_login)
                 
-                # 2. 解析地理位置 (Geo)
+                # 2. 解析地理位置
                 geo_info = await self.geo_service.resolve(raw_loc)
                 
                 # 3. 构建记录
@@ -422,11 +465,15 @@ class InsightEngine:
                     **geo_info
                 )
                 new_commits_buffer.append(record)
+                commit_count += 1
             
-            # 批次写入数据库，减少 IO
+            # 批次写入数据库
             if new_commits_buffer:
                 self.storage.save_commits(new_commits_buffer)
                 new_commits_buffer.clear()
+        
+        if commit_count > 0:
+            logger.info(f"仓库 {repo} 处理完成，新增 {commit_count} 条记录")
 
     def _generate_report(self):
         """调用报告生成器"""
@@ -440,7 +487,10 @@ class InsightEngine:
         
         abs_path = os.path.abspath(self.config.report_path)
         logger.info(f"可视化报告已生成: file://{abs_path}")
-        # webbrowser.open(f"file://{abs_path}") # 可选：自动打开浏览器
+        try:
+            webbrowser.open(f"file://{abs_path}")
+        except:
+            pass
 
 # -----------------------------------------------------------------------------
 # 报告生成器 (View Layer)
@@ -603,8 +653,9 @@ def main():
     # 1. 获取 Token
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
-        logger.critical("未检测到环境变量 GITHUB_TOKEN。请设置后重试。")
-        logger.info("Example: export GITHUB_TOKEN=ghp_xxxxxxxxxxxx")
+        logger.critical("未检测到环境变量 GITHUB_TOKEN。")
+        logger.info("Linux/Mac: export GITHUB_TOKEN=your_token")
+        logger.info("Windows (PS): $env:GITHUB_TOKEN='your_token'")
         sys.exit(1)
 
     # 2. 确定项目列表
@@ -618,8 +669,7 @@ def main():
     projects = list(set(p for p in projects if "/" in p))
     
     if not projects:
-        logger.error("未指定有效的 GitHub 项目。请使用 -p 或 -f 参数。")
-        parser.print_help()
+        logger.error("未指定有效的 GitHub 项目。请使用 -p 指定仓库，例如: python github_analyzer.py -p facebook/react")
         sys.exit(1)
 
     # 3. 初始化配置

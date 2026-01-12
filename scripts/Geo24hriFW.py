@@ -1,18 +1,16 @@
 """
-GitHub 高性能数据采集系统
------------------------------------------------------------
-前置要求:
-pip install aiohttp aiosqlite tqdm
+GitHub 高性能数据采集系统 (Refactored)
 """
 import asyncio
 import json
 import logging
+import os
 import signal
 import sys
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Set, Tuple
+from typing import List, Optional, Any
 
 # 第三方依赖检查
 try:
@@ -25,51 +23,23 @@ except ImportError:
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("GH-Collector")
 
-# ======================== 核心异常体系 ========================
-
-class GitHubCollectorError(Exception): pass
-class AuthError(GitHubCollectorError): pass
-
-# ======================== 数据模型与配置 ========================
-
-@dataclass(frozen=True)
-class CommitRecord:
-    repo_name: str
-    commit_sha: str
-    timestamp_unix: int
-    author_login: str
-    author_name: str
-    author_email: str
-    message: str
-    # 辅助字段
-    collected_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-
-    def to_db_row(self) -> Tuple:
-        return (
-            self.commit_sha,
-            self.repo_name,
-            self.author_login,
-            self.timestamp_unix,
-            self.message, # 新增 message 字段对应 SQL
-            json.dumps(asdict(self))
-        )
+# ======================== 配置与模型 ========================
 
 class AppConfig:
     API_URL = "https://api.github.com/graphql"
-    DB_PATH = "gh_enterprise_v3_fixed.db"
+    DB_PATH = "gh_data_optimized.db"
     
-    # 这里的 Token 需要替换为真实 Token
-    # 格式: ["ghp_xxxx", "ghp_yyyy"]
-    GITHUB_TOKENS = os.getenv("GITHUB_TOKENS", "").split(",") 
-
+    # 环境变量读取
+    GITHUB_TOKENS = [t.strip() for t in os.getenv("GITHUB_TOKENS", "").split(",") if t.strip()]
+    
     CONCURRENT_REPOS = 5
     PAGE_SIZE = 100
     MAX_RETRIES = 5
     TIMEOUT = aiohttp.ClientTimeout(total=60, connect=10)
-    WRITE_BATCH_SIZE = 50 # 调小一点方便观察写入
+    WRITE_BATCH_SIZE = 50
 
-    # 完整的 GraphQL 查询模板
     GRAPHQL_TEMPLATE = """
     query($owner: String!, $name: String!, $since: GitTimestamp!, $until: GitTimestamp!, $cursor: String) {
       repository(owner: $owner, name: $name) {
@@ -77,10 +47,7 @@ class AppConfig:
           target {
             ... on Commit {
               history(since: $since, until: $until, first: %d, after: $cursor) {
-                pageInfo {
-                  hasNextPage
-                  endCursor
-                }
+                pageInfo { hasNextPage endCursor }
                 edges {
                   node {
                     oid
@@ -89,9 +56,7 @@ class AppConfig:
                     author {
                       name
                       email
-                      user {
-                        login
-                      }
+                      user { login }
                     }
                   }
                 }
@@ -103,42 +68,60 @@ class AppConfig:
     }
     """ % PAGE_SIZE
 
-import os # 补充导入
+@dataclass(frozen=True)
+class CommitRecord:
+    repo_name: str
+    commit_sha: str
+    timestamp_unix: int
+    author_login: str
+    author_name: str
+    author_email: str
+    message: str
+
+    def to_db_row(self) -> tuple:
+        return (
+            self.commit_sha,
+            self.repo_name,
+            self.author_login,
+            self.timestamp_unix,
+            self.message,
+            json.dumps(asdict(self))
+        )
 
 # ======================== 基础设施层 ========================
 
 class TokenPool:
     def __init__(self, tokens: List[str]):
-        # 过滤空 Token
-        self._tokens = {t.strip(): 0.0 for t in tokens if t.strip()}
-        if not self._tokens:
-            logging.warning("警告: 未检测到 Token，将尝试匿名访问(极易限流)或请在环境变量设置 GITHUB_TOKENS")
+        self._tokens = {t: 0.0 for t in tokens}
         self._lock = asyncio.Lock()
-        self._logger = logging.getLogger("TokenPool")
-
-    async def get_best_token(self) -> Optional[str]:
         if not self._tokens:
-            return None # 无 Token 模式
+            logger.warning("未检测到 Token，将尝试匿名访问 (极易受限)")
 
+    async def get_token(self) -> Optional[str]:
+        if not self._tokens: return None
+        
         async with self._lock:
             while True:
                 now = time.time()
-                available = [t for t, cooldown in self._tokens.items() if now >= cooldown]
+                # 筛选可用 Token
+                available = [t for t, cd in self._tokens.items() if now >= cd]
+                
                 if available:
                     token = available[0]
-                    # Round-Robin: 移出并重新插入到末尾
-                    self._tokens.pop(token)
+                    # 轮询策略: 移到末尾
+                    del self._tokens[token]
                     self._tokens[token] = 0.0
                     return token
                 
+                # 若无可用，计算最小等待时间
                 wait_time = min(self._tokens.values()) - now + 0.5
-                self._logger.warning(f"所有 Token 已限流，挂起 {wait_time:.1f}s")
+                logger.warning(f"所有 Token 冷却中，等待 {wait_time:.1f}s")
                 await asyncio.sleep(max(wait_time, 1))
 
     def penalize(self, token: str, duration: int = 600):
-        if not token: return
-        self._tokens[token] = time.time() + duration
-        self._logger.warning(f"Token [...{token[-4:]}] 冷却 {duration}s")
+        if token in self._tokens:
+            self._tokens[token] = time.time() + duration
+            logger.warning(f"Token [...{token[-4:]}] 冷却 {duration}s")
 
 class AsyncDatabase:
     def __init__(self, db_path: str):
@@ -147,10 +130,10 @@ class AsyncDatabase:
 
     async def connect(self):
         self._conn = await aiosqlite.connect(self.db_path)
+        # 开启 WAL 模式提高并发写入性能
         await self._conn.execute("PRAGMA journal_mode=WAL")
         await self._conn.execute("PRAGMA synchronous=NORMAL")
         
-        # 修复建表语句，确保列数和 insert 匹配
         await self._conn.execute("""
             CREATE TABLE IF NOT EXISTS commits (
                 sha TEXT PRIMARY KEY,
@@ -164,17 +147,17 @@ class AsyncDatabase:
         await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_repo_ts ON commits(repo, ts_unix)")
         await self._conn.commit()
 
-    async def get_known_shas(self, repo: str) -> Set[str]:
-        async with self._conn.execute("SELECT sha FROM commits WHERE repo = ?", (repo,)) as cursor:
-            rows = await cursor.fetchall()
-            return {row[0] for row in rows}
-
     async def save_batch(self, records: List[CommitRecord]):
         if not records: return
-        data = [r.to_db_row() for r in records]
-        # 修复占位符数量：6个字段 = 6个问号
-        await self._conn.executemany("INSERT OR IGNORE INTO commits VALUES (?,?,?,?,?,?)", data)
-        await self._conn.commit()
+        try:
+            # 依靠 IGNORE 自动去重，无需 Python 层面判断
+            await self._conn.executemany(
+                "INSERT OR IGNORE INTO commits VALUES (?,?,?,?,?,?)", 
+                [r.to_db_row() for r in records]
+            )
+            await self._conn.commit()
+        except Exception as e:
+            logger.error(f"DB 写入异常: {e}")
 
     async def close(self):
         if self._conn: await self._conn.close()
@@ -186,203 +169,154 @@ class CollectionEngine:
         self.token_pool = token_pool
         self.db = db
         self.data_queue = asyncio.Queue(maxsize=1000)
-        self.is_running = True
-        self.stats = {"total_saved": 0}
-        self._logger = logging.getLogger("Engine")
+        self.stats = {"saved": 0}
 
-    async def _api_request(self, session: aiohttp.ClientSession, variables: dict) -> Optional[dict]:
+    async def _fetch_page(self, session: aiohttp.ClientSession, variables: dict) -> Optional[dict]:
+        """封装单次 API 请求与重试逻辑"""
         for attempt in range(AppConfig.MAX_RETRIES):
-            if not self.is_running: return None
+            token = await self.token_pool.get_token()
+            headers = {"User-Agent": "GH-Col-v4", "Authorization": f"Bearer {token}"} if token else {}
             
-            token = await self.token_pool.get_best_token()
-            headers = {"User-Agent": "GH-Collector-v3"}
-            if token:
-                headers["Authorization"] = f"bearer {token}"
-            
-            payload = {"query": AppConfig.GRAPHQL_TEMPLATE, "variables": variables}
-
             try:
-                async with session.post(AppConfig.API_URL, json=payload, headers=headers, timeout=AppConfig.TIMEOUT) as resp:
+                async with session.post(
+                    AppConfig.API_URL, 
+                    json={"query": AppConfig.GRAPHQL_TEMPLATE, "variables": variables}, 
+                    headers=headers, 
+                    timeout=AppConfig.TIMEOUT
+                ) as resp:
                     if resp.status == 200:
-                        res_json = await resp.json()
-                        if "errors" in res_json:
-                             # 简单处理 GraphQL 错误
-                            err_msg = str(res_json["errors"])
-                            if "rate limit" in err_msg.lower():
-                                if token: self.token_pool.penalize(token, 300)
+                        res = await resp.json()
+                        if "errors" in res:
+                            logger.error(f"GraphQL Error: {res['errors'][0].get('message')}")
+                            # 这里简单化：如果是 RateLimit 则惩罚，否则忽略本页
+                            if "rate limit" in str(res).lower() and token:
+                                self.token_pool.penalize(token, 300)
                                 continue
-                            if "Could not resolve to a Repository" in err_msg:
-                                self._logger.error(f"仓库不存在: {variables['owner']}/{variables['name']}")
-                                return None
-                            # 其他错误打印并返回
-                            self._logger.error(f"GraphQL Error: {err_msg}")
                             return None
-                        return res_json
+                        return res
                     
                     if resp.status in (403, 429):
-                        retry_after = int(resp.headers.get("Retry-After", 60))
-                        if token: self.token_pool.penalize(token, retry_after)
-                        await asyncio.sleep(retry_after)
-                        continue
+                        wait = int(resp.headers.get("Retry-After", 60))
+                        if token: self.token_pool.penalize(token, wait)
                     
-                    self._logger.warning(f"HTTP {resp.status} - 重试中...")
-                    await asyncio.sleep(2 ** attempt)
-
+                    await asyncio.sleep(1 * (2 ** attempt)) # 指数退避
             except Exception as e:
-                self._logger.error(f"网络异常: {e}")
-                await asyncio.sleep(2 ** attempt)
+                logger.debug(f"Req Error: {e}")
+                await asyncio.sleep(1)
         return None
 
-    async def repository_worker(self, repo_full_name: str, since: datetime, until: datetime, pbar: tqdm):
-        # 1. 变量解析
-        try:
-            owner, name = repo_full_name.split("/")
-        except ValueError:
-            self._logger.error(f"仓库名格式错误: {repo_full_name}")
-            return
-
-        known_shas = await self.db.get_known_shas(repo_full_name)
-        variables = {"owner": owner, "name": name, "since": since.isoformat(), "until": until.isoformat(), "cursor": None}
-
+    async def producer(self, repo: str, since: str, until: str, pbar: tqdm):
+        """生产者：采集数据并推入队列"""
+        owner, name = repo.split("/")
+        vars = {"owner": owner, "name": name, "since": since, "until": until, "cursor": None}
+        
         async with aiohttp.ClientSession() as session:
-            while self.is_running:
-                data = await self._api_request(session, variables)
+            while True:
+                data = await self._fetch_page(session, vars)
                 if not data: break
                 
-                # 安全获取嵌套数据
-                repo_data = data.get("data", {}).get("repository")
-                if not repo_data: break # 可能无权限或仓库为空
+                # 安全导航: data -> repository -> defaultBranchRef -> target -> history
+                try:
+                    history = data["data"]["repository"]["defaultBranchRef"]["target"]["history"]
+                except (TypeError, KeyError):
+                    break # 数据结构不符合预期或无权限
 
-                default_branch = repo_data.get("defaultBranchRef")
-                if not default_branch: break # 空仓库
-
-                history = default_branch["target"]["history"]
-                edges = history.get("edges", [])
-                
                 batch = []
-                for edge in edges:
+                for edge in history.get("edges", []):
                     node = edge["node"]
-                    sha = node["oid"]
-                    if sha in known_shas: continue
-                    
-                    author = node.get("author") or {}
-                    user = author.get("user") or {}
-
-                    record = CommitRecord(
-                        repo_name=repo_full_name,
-                        commit_sha=sha,
+                    batch.append(CommitRecord(
+                        repo_name=repo,
+                        commit_sha=node["oid"],
                         timestamp_unix=int(datetime.fromisoformat(node["committedDate"].replace("Z", "+00:00")).timestamp()),
-                        author_login=user.get("login", "Unknown"),
-                        author_name=author.get("name", "Unknown"),
-                        author_email=author.get("email", ""),
+                        author_login=node.get("author", {}).get("user", {}).get("login", "Unknown") or "Unknown",
+                        author_name=node.get("author", {}).get("name", "Unknown"),
+                        author_email=node.get("author", {}).get("email", ""),
                         message=node["messageHeadline"]
-                    )
-                    batch.append(record)
-                    known_shas.add(sha)
+                    ))
                 
                 if batch:
                     await self.data_queue.put(batch)
                     pbar.update(len(batch))
 
-                page_info = history.get("pageInfo", {})
-                if page_info.get("hasNextPage") and self.is_running:
-                    variables["cursor"] = page_info.get("endCursor")
+                if history["pageInfo"]["hasNextPage"]:
+                    vars["cursor"] = history["pageInfo"]["endCursor"]
                 else:
                     break
 
-    async def storage_worker(self):
+    async def consumer(self):
+        """消费者：从队列读取并批量写入 (使用哨兵模式)"""
         buffer = []
-        while self.is_running or not self.data_queue.empty():
-            try:
-                batch = await asyncio.wait_for(self.data_queue.get(), timeout=2.0)
-                buffer.extend(batch)
-                
-                if len(buffer) >= AppConfig.WRITE_BATCH_SIZE:
-                    await self.db.save_batch(buffer)
-                    self.stats["total_saved"] += len(buffer)
-                    buffer = []
-                
+        while True:
+            batch = await self.data_queue.get()
+            
+            # 哨兵检查: None 代表生产结束
+            if batch is None:
+                # 也可以在这里做最后的 flush，但通常放在循环外更安全
                 self.data_queue.task_done()
-            except asyncio.TimeoutError:
-                if buffer:
-                    await self.db.save_batch(buffer)
-                    self.stats["total_saved"] += len(buffer)
-                    buffer = []
-                continue
-            except Exception as e:
-                self._logger.error(f"存储线程异常: {e}")
-
-# ======================== 任务管理 ========================
-
-class Application:
-    def __init__(self, repos: List[str]):
-        self.repos = repos
-        # 尝试从环境变量读取 Token
-        tokens = AppConfig.GITHUB_TOKENS
-        self.token_pool = TokenPool(tokens)
-        self.db = AsyncDatabase(AppConfig.DB_PATH)
-        self.engine = CollectionEngine(self.token_pool, self.db)
-
-    async def run(self):
-        print(f"初始化数据库: {AppConfig.DB_PATH}")
-        await self.db.connect()
+                break
+            
+            buffer.extend(batch)
+            if len(buffer) >= AppConfig.WRITE_BATCH_SIZE:
+                await self.db.save_batch(buffer)
+                self.stats["saved"] += len(buffer)
+                buffer.clear()
+            
+            self.data_queue.task_done()
         
-        loop = asyncio.get_running_loop()
-        # Windows 下 signal 支持有限，此处做简单兼容
-        if sys.platform != 'win32':
-            for sig in (signal.SIGINT, signal.SIGTERM):
-                loop.add_signal_handler(sig, lambda: setattr(self.engine, 'is_running', False))
+        # 循环结束，写入剩余数据
+        if buffer:
+            await self.db.save_batch(buffer)
+            self.stats["saved"] += len(buffer)
 
-        storage_task = asyncio.create_task(self.engine.storage_worker())
-        semaphore = asyncio.Semaphore(AppConfig.CONCURRENT_REPOS)
-        
-        # 定义采集时间范围 (最近 30 天)
-        until = datetime.now(timezone.utc)
-        since = until - timedelta(days=30)
+# ======================== 主程序 ========================
 
-        async def sem_worker(repo, pbar):
-            async with semaphore:
-                await self.engine.repository_worker(repo, since, until, pbar)
+async def main(repos: List[str]):
+    # 1. 检查
+    if not AppConfig.GITHUB_TOKENS:
+        logger.warning("无 Token 模式，速率受限。建议设置 GITHUB_TOKENS 环境变量。")
 
-        print(f"开始采集 {len(self.repos)} 个仓库...")
-        # 进度条
-        pbar = tqdm(total=0, desc="采集 Commit", unit="条") # total=0 因为不知道总数，动态更新
-        
-        tasks = [sem_worker(repo, pbar) for repo in self.repos]
-        await asyncio.gather(*tasks)
-        
-        # 结束处理
-        self.engine.is_running = False
-        print("\n正在等待数据写入完成...")
-        await storage_task
-        await self.db.close()
-        pbar.close()
-        print(f"采集完成! 共存储 {self.engine.stats['total_saved']} 条记录。")
+    # 2. 初始化
+    db = AsyncDatabase(AppConfig.DB_PATH)
+    await db.connect()
+    
+    token_pool = TokenPool(AppConfig.GITHUB_TOKENS)
+    engine = CollectionEngine(token_pool, db)
+    
+    # 3. 准备任务
+    until_ts = datetime.now(timezone.utc)
+    since_ts = until_ts - timedelta(days=30)
+    
+    pbar = tqdm(desc="Fetching", unit=" commits")
+    
+    # 启动消费者
+    consumer_task = asyncio.create_task(engine.consumer())
+    
+    # 启动生产者 (限制并发数)
+    sem = asyncio.Semaphore(AppConfig.CONCURRENT_REPOS)
+    
+    async def run_repo(r):
+        async with sem:
+            await engine.producer(r, since_ts.isoformat(), until_ts.isoformat(), pbar)
 
-# ======================== 入口 ========================
+    await asyncio.gather(*[run_repo(r) for r in repos])
+    
+    # 4. 优雅停止
+    await engine.data_queue.put(None) # 发送哨兵
+    await consumer_task # 等待消费完成
+    
+    pbar.close()
+    await db.close()
+    logger.info(f"任务完成，共入库 {engine.stats['saved']} 条记录")
 
 if __name__ == "__main__":
-    # 仓库列表
     target_repos = [
-        "python/cpython",
-        "torvalds/linux", 
-        "microsoft/vscode",
-        "tensorflow/tensorflow",
-        "django/django"
+        "python/cpython", "torvalds/linux", "microsoft/vscode",
+        "tensorflow/tensorflow", "django/django"
     ]
     
-    # 检查是否有 Token，没有的话提醒用户
-    if not any(t.strip() for t in AppConfig.GITHUB_TOKENS):
-         print("-" * 60)
-         print("警告: 未设置 GITHUB_TOKENS 环境变量。")
-         print("公共 API 速率限制非常低 (60次/小时)，程序可能会立即报错或挂起。")
-         print("建议: export GITHUB_TOKENS='ghp_xxx,ghp_yyy'")
-         print("-" * 60)
-         # 稍微等待让用户看到警告
-         time.sleep(2)
-
-    app = Application(target_repos)
     try:
-        asyncio.run(app.run())
+        if sys.platform == 'win32':
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        asyncio.run(main(target_repos))
     except KeyboardInterrupt:
-        print("\n用户强制停止")
+        print("\n用户终止")

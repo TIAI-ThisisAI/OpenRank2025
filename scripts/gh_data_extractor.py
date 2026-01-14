@@ -1,19 +1,16 @@
 import asyncio
-import csv
 import json
 import logging
 import os
-import random
 import sqlite3
 import sys
 import time
 import argparse
 import webbrowser
-from contextlib import asynccontextmanager
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Set, Tuple, Union, AsyncGenerator, Callable
+from typing import List, Dict, Any, Optional, AsyncGenerator, Callable, Set
 from functools import wraps
 
 # -----------------------------------------------------------------------------
@@ -25,11 +22,10 @@ try:
     from tqdm.asyncio import tqdm
 except ImportError as e:
     print(f"CRITICAL ERROR: 缺少必要依赖库: {e.name}")
-    print("请运行: pip install -r requirements.txt")
-    print("或者: pip install aiohttp tqdm PyYAML")
+    print("请运行: pip install aiohttp tqdm PyYAML")
     sys.exit(1)
 
-# [FIX] Windows 平台下的 asyncio 兼容性设置
+# Windows 平台下的 asyncio 兼容性设置
 if sys.platform.startswith('win'):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
@@ -49,27 +45,24 @@ class AppConfig:
     # 常量定义
     GITHUB_API_BASE: str = "https://api.github.com"
     NOMINATIM_API: str = "https://nominatim.openstreetmap.org/search"
-    # 修改 UA 格式以更好地符合 Nominatim 规范
-    USER_AGENT: str = "GitHub-Insight-Bot/2.0 (research-purpose)"
+    USER_AGENT: str = "GitHub-Insight-Bot/2.1 (research-purpose)"
 
 # -----------------------------------------------------------------------------
 # 日志系统 (Logging)
 # -----------------------------------------------------------------------------
 def setup_logging(level_name: str) -> logging.Logger:
-    """配置全局日志系统"""
-    level = getattr(logging, level_name.upper(), logging.INFO)
     logger = logging.getLogger("GHInsight")
+    level = getattr(logging, level_name.upper(), logging.INFO)
     logger.setLevel(level)
     
     if not logger.handlers:
         handler = logging.StreamHandler()
         formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - [%(levelname)s] - %(message)s',
+            '%(asctime)s - [%(levelname)s] - %(message)s',
             datefmt='%H:%M:%S'
         )
         handler.setFormatter(formatter)
         logger.addHandler(handler)
-    
     return logger
 
 logger = setup_logging("INFO")
@@ -88,9 +81,9 @@ def async_retry(retries: int = 3, delay: int = 1, backoff: int = 2):
                     return await func(*args, **kwargs)
                 except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                     if i == retries:
-                        logger.error(f"函数 {func.__name__} 重试耗尽: {str(e)}")
+                        logger.error(f"函数 {func.__name__} 重试耗尽: {e}")
                         raise
-                    logger.warning(f"请求失败 ({i+1}/{retries})，{current_delay}s 后重试: {str(e)}")
+                    # 仅在非最后一次尝试时等待
                     await asyncio.sleep(current_delay)
                     current_delay *= backoff
         return wrapper
@@ -101,7 +94,6 @@ def async_retry(retries: int = 3, delay: int = 1, backoff: int = 2):
 # -----------------------------------------------------------------------------
 @dataclass
 class CommitRecord:
-    """提交记录实体"""
     sha: str
     repo_name: str
     author_login: str
@@ -112,83 +104,84 @@ class CommitRecord:
     lat: float = 0.0
     lon: float = 0.0
 
-    @property
-    def commit_date(self) -> datetime:
-        return datetime.fromtimestamp(self.timestamp, tz=timezone.utc)
-
 # -----------------------------------------------------------------------------
-# 持久化层 (Storage Layer)
+# 持久化层 (Storage Layer - Optimized)
 # -----------------------------------------------------------------------------
 class StorageManager:
-    """负责所有 SQLite 数据库操作"""
-    
+    """
+    负责 SQLite 操作。
+    优化点：使用上下文管理器保持连接，避免频繁打开/关闭文件的 IO 开销。
+    """
     def __init__(self, db_path: str):
         self.db_path = Path(db_path)
-        try:
-            self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        except OSError as e:
-            logger.error(f"无法创建数据库目录: {e}")
-            sys.exit(1)
-        self._init_schema()
+        self.conn: Optional[sqlite3.Connection] = None
 
-    def _get_conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+    def __enter__(self):
+        self.connect()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def connect(self):
+        if self.conn is None:
+            try:
+                self.db_path.parent.mkdir(parents=True, exist_ok=True)
+                self.conn = sqlite3.connect(self.db_path)
+                self.conn.row_factory = sqlite3.Row
+                self._init_schema()
+            except OSError as e:
+                logger.error(f"无法初始化数据库: {e}")
+                sys.exit(1)
+
+    def close(self):
+        if self.conn:
+            self.conn.close()
+            self.conn = None
 
     def _init_schema(self):
-        """初始化数据库表结构"""
-        with self._get_conn() as conn:
-            # 1. 地理编码缓存表
-            conn.execute("""
+        if not self.conn: return
+        with self.conn:
+            self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS geo_cache (
                     raw_text TEXT PRIMARY KEY,
-                    country_code TEXT,
-                    city TEXT,
-                    lat REAL,
-                    lon REAL,
+                    country_code TEXT, city TEXT, lat REAL, lon REAL,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            # 2. 提交记录表 (核心数仓)
-            conn.execute("""
+            self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS commits (
                     sha TEXT PRIMARY KEY,
-                    repo_name TEXT,
-                    author_login TEXT,
-                    timestamp INTEGER,
-                    country_code TEXT,
-                    lat REAL,
-                    lon REAL
+                    repo_name TEXT, author_login TEXT, timestamp INTEGER,
+                    country_code TEXT, lat REAL, lon REAL
                 )
             """)
-            # 索引优化查询速度
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_commits_country ON commits(country_code)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_commits_author ON commits(author_login)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_commits_time ON commits(timestamp)")
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_commits_country ON commits(country_code)")
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_commits_author ON commits(author_login)")
 
     def get_geo_cache(self, raw_text: str) -> Optional[Dict[str, Any]]:
-        if not raw_text: return None
-        with self._get_conn() as conn:
-            cursor = conn.execute(
-                "SELECT country_code, city, lat, lon FROM geo_cache WHERE raw_text = ?", 
-                (raw_text,)
-            )
-            row = cursor.fetchone()
-            return dict(row) if row else None
+        cursor = self.conn.execute(
+            "SELECT country_code, city, lat, lon FROM geo_cache WHERE raw_text = ?", 
+            (raw_text,)
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
 
     def save_geo_cache(self, raw_text: str, data: Dict[str, Any]):
-        with self._get_conn() as conn:
-            conn.execute(
+        with self.conn:
+            self.conn.execute(
                 """INSERT OR REPLACE INTO geo_cache (raw_text, country_code, city, lat, lon) 
                    VALUES (?, ?, ?, ?, ?)""",
                 (raw_text, data.get('country_code'), data.get('city'), data.get('lat'), data.get('lon'))
             )
 
-    def is_commit_exists(self, sha: str) -> bool:
-        with self._get_conn() as conn:
-            cursor = conn.execute("SELECT 1 FROM commits WHERE sha = ?", (sha,))
-            return cursor.fetchone() is not None
+    def filter_existing_shas(self, shas: List[str]) -> Set[str]:
+        """批量检查 SHAs，返回已存在的集合，减少 DB 查询次数"""
+        if not shas: return set()
+        # SQLite 限制参数数量，大批量需分块，这里简化处理，假设 batch size 较小(100)
+        placeholders = ','.join(['?'] * len(shas))
+        cursor = self.conn.execute(f"SELECT sha FROM commits WHERE sha IN ({placeholders})", shas)
+        return {row['sha'] for row in cursor.fetchall()}
 
     def save_commits(self, commits: List[CommitRecord]):
         if not commits: return
@@ -196,90 +189,77 @@ class StorageManager:
             (c.sha, c.repo_name, c.author_login, c.timestamp, c.country_code, c.lat, c.lon)
             for c in commits
         ]
-        with self._get_conn() as conn:
-            conn.executemany(
+        with self.conn:
+            self.conn.executemany(
                 "INSERT OR IGNORE INTO commits VALUES (?, ?, ?, ?, ?, ?, ?)", 
                 data
             )
 
     def get_statistics(self) -> Dict[str, Any]:
-        """获取用于报告生成的统计数据"""
         stats = {}
-        with self._get_conn() as conn:
-            # 国家分布
-            cur = conn.execute("""
-                SELECT country_code, COUNT(*) as cnt 
-                FROM commits 
-                WHERE country_code != 'UNKNOWN' AND country_code != '' 
-                GROUP BY country_code 
-                ORDER BY cnt DESC 
-                LIMIT 20
-            """)
-            stats['countries'] = {row['country_code']: row['cnt'] for row in cur.fetchall()}
+        # 国家分布
+        cur = self.conn.execute("""
+            SELECT country_code, COUNT(*) as cnt 
+            FROM commits 
+            WHERE country_code NOT IN ('UNKNOWN', '') 
+            GROUP BY country_code ORDER BY cnt DESC LIMIT 20
+        """)
+        stats['countries'] = {row['country_code']: row['cnt'] for row in cur.fetchall()}
 
-            # 活跃时间 (UTC)
-            cur = conn.execute("""
-                SELECT strftime('%H', datetime(timestamp, 'unixepoch')) as hour, COUNT(*) as cnt
-                FROM commits 
-                GROUP BY hour
-                ORDER BY hour
-            """)
-            stats['hourly'] = {row['hour']: row['cnt'] for row in cur.fetchall()}
+        # 活跃时间 (UTC)
+        cur = self.conn.execute("""
+            SELECT strftime('%H', datetime(timestamp, 'unixepoch')) as hour, COUNT(*) as cnt
+            FROM commits GROUP BY hour ORDER BY hour
+        """)
+        stats['hourly'] = {row['hour']: row['cnt'] for row in cur.fetchall()}
 
-            # 顶级贡献者
-            cur = conn.execute("""
-                SELECT author_login, COUNT(*) as cnt 
-                FROM commits 
-                GROUP BY author_login 
-                ORDER BY cnt DESC 
-                LIMIT 10
-            """)
-            stats['top_devs'] = {row['author_login']: row['cnt'] for row in cur.fetchall()}
-            
-            # 总览数据
-            stats['total_commits'] = conn.execute("SELECT COUNT(*) FROM commits").fetchone()[0]
-            stats['total_devs'] = conn.execute("SELECT COUNT(DISTINCT author_login) FROM commits").fetchone()[0]
-
+        # 顶级贡献者
+        cur = self.conn.execute("""
+            SELECT author_login, COUNT(*) as cnt 
+            FROM commits GROUP BY author_login ORDER BY cnt DESC LIMIT 10
+        """)
+        stats['top_devs'] = {row['author_login']: row['cnt'] for row in cur.fetchall()}
+        
+        # 总览
+        stats['total_commits'] = self.conn.execute("SELECT COUNT(*) FROM commits").fetchone()[0]
+        stats['total_devs'] = self.conn.execute("SELECT COUNT(DISTINCT author_login) FROM commits").fetchone()[0]
         return stats
 
 # -----------------------------------------------------------------------------
 # 服务层 (Service Layer)
 # -----------------------------------------------------------------------------
 class GeoService:
-    """处理地理编码逻辑，包含二级缓存策略 (内存 + DB)"""
-    
     def __init__(self, session: aiohttp.ClientSession, storage: StorageManager, config: AppConfig):
         self.session = session
         self.storage = storage
         self.config = config
         self._rate_limiter = asyncio.Semaphore(1)
-        self._mem_cache = {} # [FIX] 一级内存缓存
+        self._mem_cache = {} 
 
     async def resolve(self, location_str: str) -> Dict[str, Any]:
-        """解析位置字符串，内存 -> DB -> API"""
-        empty_res = {"country_code": "UNKNOWN", "city": "", "lat": 0.0, "lon": 0.0}
-        
         if not location_str or not location_str.strip():
-            return empty_res
+            return self._empty_result()
 
-        # 0. 查内存缓存
+        # 1. 内存缓存
         if location_str in self._mem_cache:
             return self._mem_cache[location_str]
 
-        # 1. 查数据库缓存
+        # 2. 数据库缓存
         cached = self.storage.get_geo_cache(location_str)
         if cached:
             self._mem_cache[location_str] = cached
             return cached
 
-        # 2. 调用 API
+        # 3. API 请求
         result = await self._fetch_from_api(location_str)
         
-        # 更新两级缓存
+        # 4. 更新缓存
         self.storage.save_geo_cache(location_str, result)
         self._mem_cache[location_str] = result
-        
         return result
+
+    def _empty_result(self):
+        return {"country_code": "UNKNOWN", "city": "", "lat": 0.0, "lon": 0.0}
 
     @async_retry(retries=2, delay=2)
     async def _fetch_from_api(self, query: str) -> Dict[str, Any]:
@@ -289,87 +269,75 @@ class GeoService:
             
             async with self.session.get(self.config.NOMINATIM_API, params=params, headers=headers) as resp:
                 if resp.status != 200:
-                    logger.warning(f"GeoAPI 错误 {resp.status}: {query}")
-                    return {"country_code": "UNKNOWN", "city": "", "lat": 0.0, "lon": 0.0}
+                    return self._empty_result()
                 
-                data = await resp.json()
-                # 严格遵守 Nominatim 策略：请求间隔至少 1 秒
+                # Nominatim 要求 1 秒限制
                 await asyncio.sleep(1.1) 
+                data = await resp.json()
 
-                result = {"country_code": "UNKNOWN", "city": "unknown", "lat": 0.0, "lon": 0.0}
-                
                 if data and isinstance(data, list) and len(data) > 0:
                     item = data[0]
+                    # 更健壮的国家代码提取
                     display_name = item.get("display_name", "")
-                    parts = display_name.split(",")
-                    # 尝试从最后一部分提取国家代码，并不完美但够用
-                    country_code = parts[-1].strip().upper()[:3] if parts else "UNKNOWN"
+                    country_code = "UNKNOWN"
+                    if display_name:
+                        parts = [p.strip() for p in display_name.split(",")]
+                        if parts:
+                            # 尝试取最后一段作为国家
+                            country_code = parts[-1].upper()[:3] 
                     
-                    result = {
+                    return {
                         "country_code": country_code,
                         "city": item.get("type", "unknown"),
                         "lat": float(item.get("lat", 0)),
                         "lon": float(item.get("lon", 0))
                     }
-                
-                return result
+                return self._empty_result()
 
 class GitHubService:
-    """处理 GitHub API 交互"""
-    
     def __init__(self, session: aiohttp.ClientSession, token: str, config: AppConfig):
         self.session = session
-        self.token = token
         self.config = config
         self.base_headers = {
             "Authorization": f"token {token}",
             "Accept": "application/vnd.github.v3+json",
             "User-Agent": config.USER_AGENT
         }
-        # [FIX] 关键优化：用户位置信息内存缓存，避免对同一个用户重复调用 API
         self._user_info_cache: Dict[str, str] = {}
 
     async def _handle_rate_limit(self, resp: aiohttp.ClientResponse):
-        """处理 GitHub 速率限制"""
         if resp.status == 403 and 'X-RateLimit-Remaining' in resp.headers:
             remaining = int(resp.headers.get('X-RateLimit-Remaining', 1))
             if remaining == 0:
-                reset_time = int(resp.headers.get('X-RateLimit-Reset', 0))
-                wait_time = max(reset_time - time.time(), 0) + 1
-                logger.warning(f"GitHub API 限流触发，休眠 {wait_time:.0f} 秒...")
+                reset_ts = int(resp.headers.get('X-RateLimit-Reset', 0))
+                wait_time = max(reset_ts - time.time(), 0) + 1
+                logger.warning(f"Rate Limit 触发，等待 {wait_time:.0f}s")
                 await asyncio.sleep(wait_time)
                 return True
         return False
 
     @async_retry()
     async def get_user_location(self, username: str) -> str:
-        # 1. 检查缓存
+        if not username: return ""
         if username in self._user_info_cache:
             return self._user_info_cache[username]
 
-        # 2. 发起请求
         url = f"{self.config.GITHUB_API_BASE}/users/{username}"
         async with self.session.get(url, headers=self.base_headers) as resp:
             if await self._handle_rate_limit(resp):
                 return await self.get_user_location(username)
             
-            if resp.status == 404:
-                self._user_info_cache[username] = ""
-                return ""
-            
-            if resp.status != 200:
-                logger.warning(f"获取用户信息失败 [{resp.status}]: {username}")
-                return ""
+            location = ""
+            if resp.status == 200:
+                data = await resp.json()
+                location = data.get("location") or ""
+            elif resp.status != 404:
+                logger.debug(f"用户 {username} 获取失败: {resp.status}")
 
-            data = await resp.json()
-            location = data.get("location") or ""
-            
-            # 3. 写入缓存
             self._user_info_cache[username] = location
             return location
 
     async def fetch_commits(self, repo: str, since: datetime) -> AsyncGenerator[List[Dict], None]:
-        """生成器模式获取 Commit 批次"""
         url = f"{self.config.GITHUB_API_BASE}/repos/{repo}/commits"
         params = {"since": since.isoformat(), "per_page": 100, "page": 1}
         
@@ -378,132 +346,118 @@ class GitHubService:
                 async with self.session.get(url, headers=self.base_headers, params=params) as resp:
                     if await self._handle_rate_limit(resp):
                         continue
-                    
-                    if resp.status == 404:
-                        logger.error(f"仓库不存在或无权限: {repo}")
-                        break
-                    
                     if resp.status != 200:
-                        logger.error(f"获取 {repo} 失败: HTTP {resp.status}")
+                        if resp.status == 404:
+                            logger.error(f"仓库不可见: {repo}")
                         break
                         
                     batch = await resp.json()
                     if not batch or not isinstance(batch, list):
                         break
-                        
                     yield batch
-                    
-                    if len(batch) < 100:
-                        break
+                    if len(batch) < 100: break
                     params["page"] += 1
             except Exception as e:
-                logger.error(f"Fetch loop error: {e}")
+                logger.error(f"Fetch loop error for {repo}: {e}")
                 break
 
 # -----------------------------------------------------------------------------
 # 核心逻辑控制器 (Controller)
 # -----------------------------------------------------------------------------
 class InsightEngine:
-    """主逻辑编排引擎"""
-    
     def __init__(self, config: AppConfig):
         self.config = config
-        self.storage = StorageManager(config.db_path)
     
     async def run(self, projects: List[str]):
-        """执行主任务流程"""
-        conn = aiohttp.TCPConnector(limit=self.config.concurrency)
-        async with aiohttp.ClientSession(connector=conn) as session:
-            self.gh_service = GitHubService(session, self.config.github_token, self.config)
-            self.geo_service = GeoService(session, self.storage, self.config)
-            
-            # 计算起始时间
-            since_date = datetime.now(timezone.utc) - timedelta(days=self.config.lookback_days)
-            logger.info(f"开始分析任务 - 回溯时间: {since_date.date()} - 项目数: {len(projects)}")
+        # 初始化数据库连接管理器
+        with StorageManager(self.config.db_path) as storage:
+            conn = aiohttp.TCPConnector(limit=self.config.concurrency)
+            async with aiohttp.ClientSession(connector=conn) as session:
+                self.gh_service = GitHubService(session, self.config.github_token, self.config)
+                self.geo_service = GeoService(session, storage, self.config)
+                self.storage = storage # 绑定活跃的 storage 实例
+                
+                since_date = datetime.now(timezone.utc) - timedelta(days=self.config.lookback_days)
+                logger.info(f"开始分析任务 | 项目数: {len(projects)} | 周期: {self.config.lookback_days}天")
 
-            # 创建并发任务
-            tasks = [self._process_single_repo(p, since_date) for p in projects]
-            
-            # 使用 tqdm 显示总体进度
-            await tqdm.gather(*tasks, desc="Analysis Progress", unit="repo")
-            
-            logger.info("所有仓库分析完成，生成报告中...")
-            self._generate_report()
+                tasks = [self._process_single_repo(p, since_date) for p in projects]
+                await tqdm.gather(*tasks, desc="Total Progress", unit="repo")
+                
+                logger.info("生成报告...")
+                self._generate_report()
 
     async def _process_single_repo(self, repo: str, since: datetime):
-        """处理单个仓库：获取Commit -> 过滤 -> 补全Geo -> 存储"""
         new_commits_buffer = []
         commit_count = 0
         
-        async for batch in self.gh_service.fetch_commits(repo, since):
-            for item in batch:
-                sha = item.get('sha')
-                if not sha: continue
+        try:
+            async for batch in self.gh_service.fetch_commits(repo, since):
+                # 优化：批量去重，避免逐条查询 DB
+                shas_in_batch = [item['sha'] for item in batch if item.get('sha')]
+                existing_shas = self.storage.filter_existing_shas(shas_in_batch)
+                
+                # 过滤出真正需要处理的 commit
+                to_process = [
+                    item for item in batch 
+                    if item.get('sha') not in existing_shas and item.get('author')
+                ]
 
-                # 跳过已处理或无作者信息的提交
-                if self.storage.is_commit_exists(sha) or not item.get('author'):
+                if not to_process:
                     continue
-                
-                author_login = item['author']['login']
-                commit_ts = datetime.fromisoformat(
-                    item['commit']['author']['date'].replace("Z", "+00:00")
-                ).timestamp()
 
-                # 1. 获取用户位置 (包含缓存优化)
-                raw_loc = await self.gh_service.get_user_location(author_login)
+                for item in to_process:
+                    author_login = item['author']['login']
+                    sha = item['sha']
+                    
+                    # API 调用
+                    raw_loc = await self.gh_service.get_user_location(author_login)
+                    geo_info = await self.geo_service.resolve(raw_loc)
+                    
+                    # 时间戳转换
+                    ts_str = item['commit']['author']['date'].replace("Z", "+00:00")
+                    commit_ts = datetime.fromisoformat(ts_str).timestamp()
+
+                    new_commits_buffer.append(CommitRecord(
+                        sha=sha, repo_name=repo, author_login=author_login,
+                        timestamp=int(commit_ts), raw_location=raw_loc, **geo_info
+                    ))
                 
-                # 2. 解析地理位置
-                geo_info = await self.geo_service.resolve(raw_loc)
-                
-                # 3. 构建记录
-                record = CommitRecord(
-                    sha=sha,
-                    repo_name=repo,
-                    author_login=author_login,
-                    timestamp=int(commit_ts),
-                    raw_location=raw_loc,
-                    **geo_info
-                )
-                new_commits_buffer.append(record)
-                commit_count += 1
-            
-            # 批次写入数据库
-            if new_commits_buffer:
-                self.storage.save_commits(new_commits_buffer)
-                new_commits_buffer.clear()
+                # 批量写入
+                if new_commits_buffer:
+                    self.storage.save_commits(new_commits_buffer)
+                    commit_count += len(new_commits_buffer)
+                    new_commits_buffer.clear()
+
+        except Exception as e:
+            logger.error(f"处理仓库 {repo} 时发生意外错误: {e}")
         
         if commit_count > 0:
-            logger.info(f"仓库 {repo} 处理完成，新增 {commit_count} 条记录")
+            logger.info(f"[{repo}] 完成，新增记录: {commit_count}")
 
     def _generate_report(self):
-        """调用报告生成器"""
         stats = self.storage.get_statistics()
         if not stats.get('total_commits'):
-            logger.warning("没有采集到任何数据，跳过报告生成。")
+            logger.warning("无数据生成报告")
             return
-            
-        generator = ReportGenerator(self.config.report_path)
-        generator.render(stats)
+        
+        ReportGenerator(self.config.report_path).render(stats)
         
         abs_path = os.path.abspath(self.config.report_path)
-        logger.info(f"可视化报告已生成: file://{abs_path}")
         try:
             webbrowser.open(f"file://{abs_path}")
-        except:
-            pass
+        except Exception:
+            logger.info(f"报告已保存至: {abs_path}")
 
 # -----------------------------------------------------------------------------
 # 报告生成器 (View Layer)
 # -----------------------------------------------------------------------------
 class ReportGenerator:
-    """生成 HTML 报告"""
-    
     def __init__(self, output_path: str):
         self.output_path = Path(output_path)
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
 
     def render(self, stats: Dict[str, Any]):
-        html_content = self._get_template().format(
+        html_content = self._template().format(
             gen_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
             total_commits=stats.get('total_commits', 0),
             total_devs=stats.get('total_devs', 0),
@@ -511,185 +465,106 @@ class ReportGenerator:
             countries_data=json.dumps(list(stats['countries'].values())),
             hourly_labels=json.dumps(list(stats['hourly'].keys())),
             hourly_data=json.dumps(list(stats['hourly'].values())),
-            top_devs_rows=self._render_table_rows(stats['top_devs'])
+            top_devs_rows=self._rows(stats['top_devs'])
         )
-        
         with open(self.output_path, 'w', encoding='utf-8') as f:
             f.write(html_content)
 
-    def _render_table_rows(self, dev_dict: Dict[str, int]) -> str:
-        rows = []
-        for rank, (user, count) in enumerate(dev_dict.items(), 1):
-            rows.append(
-                f"<tr><td>{rank}</td><td><a href='https://github.com/{user}' target='_blank'>{user}</a></td><td>{count}</td></tr>"
-            )
-        return "".join(rows)
+    def _rows(self, dev_dict: Dict[str, int]) -> str:
+        return "".join([
+            f"<tr><td>{i}</td><td><a href='https://github.com/{u}' target='_blank'>{u}</a></td><td>{c}</td></tr>" 
+            for i, (u, c) in enumerate(dev_dict.items(), 1)
+        ])
 
-    def _get_template(self) -> str:
-        return """
-<!DOCTYPE html>
+    def _template(self) -> str:
+        return """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GitHub Insight Pro Report</title>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Insight Report</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        :root {{ --primary: #2563eb; --bg: #f8fafc; --card: #ffffff; --text: #1e293b; }}
-        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }}
+        :root {{ --primary: #2563eb; --bg: #f8fafc; --card: #fff; --text: #1e293b; }}
+        body {{ font-family: sans-serif; background: var(--bg); color: var(--text); padding: 20px; }}
         .container {{ max-width: 1200px; margin: 0 auto; }}
         .header {{ text-align: center; margin-bottom: 40px; padding: 20px; background: var(--card); border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }}
         .stats-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }}
         .stat-card {{ background: var(--card); padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }}
         .stat-val {{ font-size: 2em; font-weight: bold; color: var(--primary); }}
-        .charts-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }}
-        .chart-box {{ background: var(--card); padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }}
-        .table-box {{ background: var(--card); padding: 20px; border-radius: 12px; overflow: hidden; }}
-        table {{ width: 100%; border-collapse: collapse; }}
+        .charts-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; margin-bottom: 30px; }}
+        .chart-box {{ background: var(--card); padding: 20px; border-radius: 12px; height: 300px; }}
+        table {{ width: 100%; border-collapse: collapse; background: var(--card); }}
         th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }}
-        th {{ background: #f1f5f9; font-weight: 600; }}
         a {{ color: var(--primary); text-decoration: none; }}
-        @media (max-width: 768px) {{ .charts-grid {{ grid-template-columns: 1fr; }} }}
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>GitHub 项目地理分布洞察报告</h1>
-            <p style="color: #64748b;">生成时间: {gen_time}</p>
-        </div>
-
+        <div class="header"><h1>GitHub 项目地理分布报告</h1><p>{gen_time}</p></div>
         <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-val">{total_commits}</div>
-                <div>分析 Commit 总数</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-val">{total_devs}</div>
-                <div>活跃贡献者</div>
-            </div>
+            <div class="stat-card"><div class="stat-val">{total_commits}</div><div>Commits</div></div>
+            <div class="stat-card"><div class="stat-val">{total_devs}</div><div>Contributors</div></div>
         </div>
-
         <div class="charts-grid">
-            <div class="chart-box">
-                <h3>🌍 贡献者国家/地区分布</h3>
-                <canvas id="countryChart"></canvas>
-            </div>
-            <div class="chart-box">
-                <h3>⏰ 全球提交时间分布 (UTC)</h3>
-                <canvas id="hourChart"></canvas>
-            </div>
+            <div class="chart-box"><canvas id="countryChart"></canvas></div>
+            <div class="chart-box"><canvas id="hourChart"></canvas></div>
         </div>
-
-        <div class="table-box">
-            <h3>🏆 核心贡献者榜单 (Top 10)</h3>
-            <table>
-                <thead><tr><th>排名</th><th>用户 ID</th><th>提交数</th></tr></thead>
-                <tbody>{top_devs_rows}</tbody>
-            </table>
+        <div class="chart-box" style="height:auto; overflow:hidden">
+            <h3>Top Contributors</h3>
+            <table><thead><tr><th>#</th><th>User</th><th>Commits</th></tr></thead><tbody>{top_devs_rows}</tbody></table>
         </div>
     </div>
-
     <script>
-        const commonOptions = {{ responsive: true, plugins: {{ legend: {{ position: 'bottom' }} }} }};
-        
+        const opts = {{ responsive: true, maintainAspectRatio: false }};
         new Chart(document.getElementById('countryChart'), {{
             type: 'bar',
-            data: {{
-                labels: {countries_labels},
-                datasets: [{{
-                    label: 'Commits',
-                    data: {countries_data},
-                    backgroundColor: '#3b82f6',
-                    borderRadius: 4
-                }}]
-            }},
-            options: commonOptions
+            data: {{ labels: {countries_labels}, datasets: [{{ label: 'Commits', data: {countries_data}, backgroundColor: '#3b82f6' }}] }},
+            options: opts
         }});
-
         new Chart(document.getElementById('hourChart'), {{
             type: 'line',
-            data: {{
-                labels: {hourly_labels},
-                datasets: [{{
-                    label: 'Activity Volume',
-                    data: {hourly_data},
-                    borderColor: '#ef4444',
-                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                    fill: true,
-                    tension: 0.4
-                }}]
-            }},
-            options: commonOptions
+            data: {{ labels: {hourly_labels}, datasets: [{{ label: 'Activity', data: {hourly_data}, borderColor: '#ef4444', fill: true }}] }},
+            options: opts
         }});
     </script>
-</body>
-</html>
-"""
+</body></html>"""
 
 # -----------------------------------------------------------------------------
-# 程序入口 (Entry Point)
+# Main
 # -----------------------------------------------------------------------------
-def load_projects_from_config(config_path: str) -> List[str]:
-    """从 YAML 加载项目列表"""
-    try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            data = yaml.safe_load(f)
-            return data.get('projects', [])
-    except Exception as e:
-        logger.error(f"无法读取配置文件 {config_path}: {e}")
-        return []
-
 def main():
-    parser = argparse.ArgumentParser(description="GitHub Insight Pro - Developer Geography Analyzer")
-    parser.add_argument("-p", "--projects", nargs='+', help="GitHub 仓库路径 (e.g. facebook/react)")
-    parser.add_argument("-f", "--config", help="YAML 配置文件路径包含项目列表")
-    parser.add_argument("-d", "--days", type=int, default=30, help="分析过去多少天的数据 (默认: 30)")
-    parser.add_argument("-o", "--output", default="reports/insight_report.html", help="报告输出路径")
-    parser.add_argument("--db", default="data/github_data.db", help="SQLite 数据库路径")
-    
+    parser = argparse.ArgumentParser(description="GitHub Insight Pro")
+    parser.add_argument("-p", "--projects", nargs='+', help="GitHub repo paths")
+    parser.add_argument("-f", "--config", help="YAML config file")
+    parser.add_argument("-d", "--days", type=int, default=30)
+    parser.add_argument("-o", "--output", default="reports/insight_report.html")
     args = parser.parse_args()
     
-    # 1. 获取 Token
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
-        logger.critical("未检测到环境变量 GITHUB_TOKEN。")
-        logger.info("Linux/Mac: export GITHUB_TOKEN=your_token")
-        logger.info("Windows (PS): $env:GITHUB_TOKEN='your_token'")
+        logger.critical("Missing GITHUB_TOKEN environment variable.")
         sys.exit(1)
 
-    # 2. 确定项目列表
-    projects = []
-    if args.projects:
-        projects.extend(args.projects)
+    projects = set(args.projects or [])
     if args.config:
-        projects.extend(load_projects_from_config(args.config))
-    
-    # 去重并验证
-    projects = list(set(p for p in projects if "/" in p))
-    
+        try:
+            with open(args.config, 'r') as f:
+                projects.update(yaml.safe_load(f).get('projects', []))
+        except Exception as e:
+            logger.error(f"Config load error: {e}")
+
     if not projects:
-        logger.error("未指定有效的 GitHub 项目。请使用 -p 指定仓库，例如: python github_analyzer.py -p facebook/react")
+        logger.error("No projects specified. Use -p or -f.")
         sys.exit(1)
 
-    # 3. 初始化配置
-    config = AppConfig(
-        github_token=token,
-        db_path=args.db,
-        report_path=args.output,
-        lookback_days=args.days
-    )
-
-    # 4. 运行引擎
-    engine = InsightEngine(config)
+    config = AppConfig(github_token=token, report_path=args.output, lookback_days=args.days)
     
     try:
-        asyncio.run(engine.run(projects))
+        asyncio.run(InsightEngine(config).run(list(projects)))
     except KeyboardInterrupt:
-        logger.info("用户中断操作，正在安全退出...")
+        logger.info("Stopped by user.")
     except Exception as e:
-        logger.exception(f"程序运行发生未捕获异常: {e}")
-        sys.exit(1)
+        logger.exception(f"Fatal error: {e}")
 
 if __name__ == "__main__":
     main()

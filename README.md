@@ -158,11 +158,19 @@ GitHub 上超过 60% 的开发者未提供有效位置。“开源经纬”通�
 
 从讨论选题开始就在github上以issue的形式进行讨论，目前共计16个issue，一百余条Comments回复
 
+<img width="2504" height="2076" alt="image" src="https://github.com/user-attachments/assets/f209ce87-3a3f-44df-9a82-c8657f139443" />
+
+
 **(2) 开源协作 PR贡献**
 
 本项目完全以开源协作的方式进行代码迭代，以共计200余个PR的形式完成本项目的开发
 
-## “OpenRank杯”开源数字生态分析与应用创新赛 
+<img width="1932" height="1934" alt="image" src="https://github.com/user-attachments/assets/b172550f-9213-42bb-a660-c80bc0a2f2fd" />
+
+
+---
+
+## 七、队伍信息
 
 **参赛赛道** : 基于OpenDigger
 

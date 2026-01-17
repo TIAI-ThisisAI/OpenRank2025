@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Open Source Developer 3D Earth Distribution Model</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000000;
+            font-family: Arial, sans-serif;
+        }
+        #container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+        }
+        #instructions {
+            position: absolute;
+            top: 20px;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            color: white;
+            font-size: 14px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            pointer-events: none;
+            z-index: 10;
+        }
+        #tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            pointer-events: none;
+            z-index: 100;
+            display: none;
+            border: 1px solid #fff;
+        }
+        #legend {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #444;
+            z-index: 100;
+            font-size: 14px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+            border-radius: 3px;
+        }
+        #topCountries {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #444;
+            z-index: 100;
+            font-size: 14px;
+            min-width: 200px;
+        }
+        .rank-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+        .rank-number {
+            font-weight: bold;
+            color: #44ff44;
+        }
+        #leftPanel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #444;
+            z-index: 100;
+            width: 250px;
+            font-size: 14px;
+        }
+        #searchPanel {
+            margin-bottom: 15px;
+        }
+        #searchPanel input {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            background: rgba(50, 50, 50, 0.8);
+            color: white;
+            border: 1px solid #444;
+            border-radius: 5px;
+        }
+        #searchPanel button {
+            width: 100%;
+            padding: 8px;
+            background: #4444ff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #statsPanel {
+            margin-bottom: 15px;
+        }
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .stat-label {
+            color: #aaa;
+        }
+        .stat-value {
+            font-weight: bold;
+            color: #44ff44;
+        }
+        #countryDetails {
+            display: none;
+        }
+        #countryDetails h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: #44ff44;
+            border-bottom: 1px solid #444;
+            padding-bottom: 5px;
+        }
+        #countryDetails p {
+            margin: 5px 0;
+        }
+        .detail-label {
+            color: #aaa;
+        }
+        .detail-value {
+            font-weight: bold;
+            color: #44ff44;
+        }
+        #searchHint {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: -8px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="instructions">Drag to rotate Earth | 拖动鼠标旋转地球</div>
+    <div id="container"></div>
+    <div id="tooltip"></div>
+    
+    <div id="leftPanel">
+        <div id="searchPanel">
+            <input type="text" id="countrySearch" placeholder="Search country or region...">
+            <div id="searchHint">Enter country name in English</div>
+            <button onclick="findCountry()">Find Country</button>
+        </div>
+        
+        <div id="statsPanel">
+            <h3>Global Statistics</h3>
+            <div class="stat-item">
+                <span class="stat-label">Total Developers:</span>
+                <span class="stat-value">20.2953M+</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Countries Covered:</span>
+                <span class="stat-value">242 countries</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Annual Growth Rate:</span>
+                <span class="stat-value">+12.3%</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Most Active Region:</span>
+                <span class="stat-value">Asia</span>
+            </div>
+        </div>
+        
+        <div id="countryDetails">
+            <h3>Country Details</h3>
+            <p><span class="detail-label">Country:</span> <span id="countryName" class="detail-value">-</span></p>
+            <p><span class="detail-label">Continent:</span> <span id="countryContinent" class="detail-value">-</span></p>
+            <p><span class="detail-label">Developer Count:</span> <span id="countryDevelopers" class="detail-value">-</span></p>
+            <p><span class="detail-label">Global Rank:</span> <span id="countryRank" class="detail-value">-</span></p>
+        </div>
+    </div>
+    
+    <div id="legend">
+        <div style="font-weight: bold; margin-bottom: 10px;">Continental Distribution Legend 分布图例</div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #ff4444;"></div>
+            <span>Asia (亚洲)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #4444ff;"></div>
+            <span>North America (北美洲)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #44ff44;"></div>
+            <span>Europe (欧洲)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #ffff44;"></div>
+            <span>South America (南美洲)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #ff44ff;"></div>
+            <span>Africa (非洲)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #44ffff;"></div>
+            <span>Oceania (大洋洲)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #ffffff;"></div>
+            <span>Arctic (北极地区)</span>
+        </div>
+    </div>
+    <div id="topCountries">
+        <div style="font-weight: bold; margin-bottom: 10px;">Top 10 Developer Counts by Country</div>
+        <div class="rank-item">
+            <span class="rank-number">1.</span>
+            <span>USA: 4.7616M</span>
+        </div>
+        <div class="rank-item">
+            <span class="rank-number">2.</span>
+            <span>India: 2.3998M</span>
+        </div>
+        <div class="rank-item">
+            <span class="rank-number">3.</span>
+            <span>China: 1.9829M</span>
+        </div>
+        <div class="rank-item">
+            <span class="rank-number">4.</span>
+            <span>UK: 0.983M</span>
+        </div>
+        <div class="rank-item">
+            <span class="rank-number">5.</span>
+            <span>Germany: 0.95M</span>
+        </div>
+        <div class="rank-item">
+            <span class="rank-number">6.</span>
+            <span>Brazil: 0.8M</span>
+        </div>
+        <div class="rank-item">
+            <span class="rank-number">7.</span>
+            <span>Canada: 0.7969M</span>
+        </div>
+        <div class="rank-item">
+            <span class="rank-number">8.</span>
+            <span>France: 0.6888M</span>
+        </div>
+        <div class="rank-item">
+            <span class="rank-number">9.</span>
+            <span>Australia: 0.3803M</span>
+        </div>
+        <div class="rank-item">
+            <span class="rank-number">10.</span>
+            <span>Russia: 0.5714M</span>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Function to convert latitude and longitude to 3D coordinates
+        function latLongToVector3(lat, lon, radius) {
+            const phi = (90 - lat) * Math.PI / 180;
+            const theta = (lon + 180) * Math.PI / 180;
+
+            return new THREE.Vector3(
+                -radius * Math.sin(phi) * Math.cos(theta),
+                radius * Math.cos(phi),
+                radius * Math.sin(phi) * Math.sin(theta)
+            );
+        }
+
+        // Scene initialization
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 2;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('container').appendChild(renderer.domElement);
+
+        // Create basic Earth
+        const geometry = new THREE.SphereGeometry(1, 64, 64);
+
+        const textureLoader = new THREE.TextureLoader();
+        const map = textureLoader.load('https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg');
+        const bumpMap = textureLoader.load('https://threejs.org/examples/textures/planets/earth_normal_2048.jpg');
+        const specularMap = textureLoader.load('https://threejs.org/examples/textures/planets/earth_specular_2048.jpg');
+
+        const material = new THREE.MeshPhongMaterial({
+            map: map,
+            bumpMap: bumpMap,
+            bumpScale: 0.05,
+            specularMap: specularMap,
+            specular: new THREE.Color(0x333333),
+            shininess: 5
+        });
+
+        const earth = new THREE.Mesh(geometry, material);
+        scene.add(earth);
+
+        // Add clouds layer
+        const cloudGeometry = new THREE.SphereGeometry(1.01, 64, 64);
+        const cloudMaterial = new THREE.MeshPhongMaterial({
+            map: textureLoader.load('https://threejs.org/examples/textures/planets/earth_clouds_1024.png'),
+            transparent: true,
+            opacity: 0.4
+        });
+        const clouds = new THREE.Mesh(cloudGeometry, cloudMaterial);
+        scene.add(clouds);
+
+        // Continent color mapping
+        const continentColors = {
+            Asia: 0xff4444,       // Red
+            'North America': 0x4444ff, // Blue
+            Europe: 0x44ff44,      // Green
+            'South America': 0xffff44, // Yellow
+            Africa: 0xff44ff,       // Magenta
+            Oceania: 0x44ffff,     // Cyan
+            Arctic: 0xffffff       // White
+        };
+
+        // Country developer data (using capital city coordinates, grouped by continent)
+        const countryData = [
+            // Asia
+            { country: 'China', count: 198.29, capital: { lat: 39.9042, lon: 116.4074 }, rawCount: '1.9829M', continent: 'Asia', rank: 3 }, // Beijing
+            { country: 'Japan', count: 36.79, capital: { lat: 35.6895, lon: 139.6917 }, rawCount: '0.3679M', continent: 'Asia', rank: 12 }, // Tokyo
+            { country: 'Mongolia', count: 0.44, capital: { lat: 47.8864, lon: 106.9057 }, rawCount: '0.0044M', continent: 'Asia', rank: 96 }, // Ulaanbaatar
+            { country: 'Kazakhstan', count: 3.57, capital: { lat: 51.1605, lon: 71.4704 }, rawCount: '0.0357M', continent: 'Asia', rank: 61 }, // Nur-Sultan
+            { country: 'Iran', count: 10.36, capital: { lat: 35.6892, lon: 51.3890 }, rawCount: '0.1036M', continent: 'Asia', rank: 35 }, // Tehran
+            { country: 'Indonesia', count: 36.64, capital: { lat: -6.2088, lon: 106.8456 }, rawCount: '0.3664M', continent: 'Asia', rank: 13 }, // Jakarta
+            { country: 'Malaysia', count: 5.97, capital: { lat: 3.1390, lon: 101.6869 }, rawCount: '0.0597M', continent: 'Asia', rank: 50 }, // Kuala Lumpur
+            { country: 'Thailand', count: 7.64, capital: { lat: 13.7563, lon: 100.5018 }, rawCount: '0.0764M', continent: 'Asia', rank: 42 }, // Bangkok
+            { country: 'Vietnam', count: 21.5, capital: { lat: 21.0278, lon: 105.8342 }, rawCount: '0.215M', continent: 'Asia', rank: 18 }, // Hanoi
+            { country: 'Pakistan', count: 18.89, capital: { lat: 33.6844, lon: 73.0479 }, rawCount: '0.1889M', continent: 'Asia', rank: 21 }, // Islamabad
+            { country: 'Saudi Arabia', count: 3.35, capital: { lat: 24.6877, lon: 46.7219 }, rawCount: '0.0335M', continent: 'Asia', rank: 64 }, // Riyadh
+            { country: 'Yemen', count: 0.39, capital: { lat: 15.3694, lon: 44.1910 }, rawCount: '0.0039M', continent: 'Asia', rank: 99 }, // Sana'a
+            { country: 'Israel', count: 9.14, capital: { lat: 31.7683, lon: 35.2137 }, rawCount: '0.0914M', continent: 'Asia', rank: 38 }, // Jerusalem
+            { country: 'Jordan', count: 1.12, capital: { lat: 31.9516, lon: 35.9257 }, rawCount: '0.0112M', continent: 'Asia', rank: 83 }, // Amman
+            { country: 'Syria', count: 0.42, capital: { lat: 33.5138, lon: 36.2919 }, rawCount: '0.0042M', continent: 'Asia', rank: 97 }, // Damascus
+            { country: 'Philippines', count: 10.12, capital: { lat: 14.5995, lon: 120.9842 }, rawCount: '0.1012M', continent: 'Asia', rank: 36 }, // Manila
+            { country: 'Cambodia', count: 1.02, capital: { lat: 11.5564, lon: 104.9282 }, rawCount: '0.0102M', continent: 'Asia', rank: 85 }, // Phnom Penh
+            { country: 'Bangladesh', count: 18.38, capital: { lat: 23.8103, lon: 90.4125 }, rawCount: '0.1838M', continent: 'Asia', rank: 22 }, // Dhaka
+            { country: 'Sri Lanka', count: 8.24, capital: { lat: 6.9271, lon: 79.8612 }, rawCount: '0.0824M', continent: 'Asia', rank: 40 }, // Colombo
+            { country: 'India', count: 239.98, capital: { lat: 28.6139, lon: 77.2090 }, rawCount: '2.3998M', continent: 'Asia', rank: 2 }, // New Delhi
+            { country: 'Afghanistan', count: 0.48, capital: { lat: 34.5552, lon: 69.2074 }, rawCount: '0.0048M', continent: 'Asia', rank: 95 }, // Kabul
+            { country: 'Uzbekistan', count: 3.67, capital: { lat: 41.2995, lon: 69.2401 }, rawCount: '0.0367M', continent: 'Asia', rank: 60 }, // Tashkent
+            { country: 'Turkmenistan', count: 0.13, capital: { lat: 37.9509, lon: 58.3794 }, rawCount: '0.0013M', continent: 'Asia', rank: 102 }, // Ashgabat
+            { country: 'Azerbaijan', count: 1.7, capital: { lat: 40.4093, lon: 49.8671 }, rawCount: '0.017M', continent: 'Asia', rank: 76 }, // Baku
+            { country: 'Armenia', count: 2.09, capital: { lat: 40.1772, lon: 44.4971 }, rawCount: '0.0209M', continent: 'Asia', rank: 72 }, // Yerevan
+            { country: 'Georgia', count: 3.19, capital: { lat: 41.7151, lon: 44.8271 }, rawCount: '0.0319M', continent: 'Asia', rank: 66 }, // Tbilisi
+            // North America
+            { country: 'USA', count: 476.16, capital: { lat: 38.9072, lon: -77.0369 }, rawCount: '4.7616M', continent: 'North America', rank: 1 }, // Washington
+            { country: 'Canada', count: 79.69, capital: { lat: 45.4215, lon: -75.6972 }, rawCount: '0.7969M', continent: 'North America', rank: 7 }, // Ottawa
+            { country: 'Mexico', count: 22.23, capital: { lat: 19.4326, lon: -99.1332 }, rawCount: '0.2223M', continent: 'North America', rank: 17 }, // Mexico City
+            { country: 'Cuba', count: 0.64, capital: { lat: 23.1136, lon: -82.3666 }, rawCount: '0.0064M', continent: 'North America', rank: 89 }, // Havana
+            { country: 'Guatemala', count: 1.6, capital: { lat: 14.6349, lon: -90.5069 }, rawCount: '0.016M', continent: 'North America', rank: 77 }, // Guatemala City
+            { country: 'Belize', count: 0.06, capital: { lat: 17.2577, lon: -88.7713 }, rawCount: '0.0006M', continent: 'North America', rank: 104 }, // Belmopan
+            { country: 'Honduras', count: 0.65, capital: { lat: 14.0818, lon: -87.2067 }, rawCount: '0.0065M', continent: 'North America', rank: 88 }, // Tegucigalpa
+            { country: 'Panama', count: 0.78, capital: { lat: 8.9814, lon: -79.5197 }, rawCount: '0.0078M', continent: 'North America', rank: 87 }, // Panama City
+            { country: 'Costa Rica', count: 2.79, capital: { lat: 9.9347, lon: -84.0876 }, rawCount: '0.0279M', continent: 'North America', rank: 70 }, // San Jose
+            { country: 'Greenland', count: 0.04, capital: { lat: 64.1814, lon: -51.6941 }, rawCount: '0.0004M', continent: 'Arctic', rank: 105 }, // Nuuk
+            { country: 'Puerto Rico', count: 0.7, capital: { lat: 18.2208, lon: -66.5901 }, rawCount: '0.007M', continent: 'North America', rank: 88 }, // San Juan
+            { country: 'El Salvador', count: 1.27, capital: { lat: 13.6989, lon: -89.1910 }, rawCount: '0.0127M', continent: 'North America', rank: 82 }, // San Salvador
+            { country: 'Nicaragua', count: 0.6, capital: { lat: 12.1328, lon: -86.2504 }, rawCount: '0.006M', continent: 'North America', rank: 90 }, // Managua
+            // Europe
+            { country: 'Russia', count: 57.14, capital: { lat: 55.7558, lon: 37.6173 }, rawCount: '0.5714M', continent: 'Europe', rank: 10 }, // Moscow
+            { country: 'UK', count: 98.3, capital: { lat: 51.5074, lon: -0.1278 }, rawCount: '0.983M', continent: 'Europe', rank: 4 }, // London
+            { country: 'Germany', count: 95.00, capital: { lat: 52.5200, lon: 13.4050 }, rawCount: '0.95M', continent: 'Europe', rank: 5 }, // Berlin
+            { country: 'Ukraine', count: 32.48, capital: { lat: 50.4501, lon: 30.5234 }, rawCount: '0.3248M', continent: 'Europe', rank: 15 }, // Kyiv
+            { country: 'Romania', count: 10.23, capital: { lat: 44.4268, lon: 26.1025 }, rawCount: '0.1023M', continent: 'Europe', rank: 34 }, // Bucharest
+            { country: 'Italy', count: 27.23, capital: { lat: 41.9028, lon: 12.4964 }, rawCount: '0.2723M', continent: 'Europe', rank: 14 }, // Rome
+            { country: 'Spain', count: 36.52, capital: { lat: 40.4168, lon: -3.7038 }, rawCount: '0.3652M', continent: 'Europe', rank: 11 }, // Madrid
+            { country: 'Portugal', count: 14.69, capital: { lat: 38.7223, lon: -9.1393 }, rawCount: '0.1469M', continent: 'Europe', rank: 25 }, // Lisbon
+            { country: 'Ireland', count: 7.01, capital: { lat: 53.3498, lon: -6.2603 }, rawCount: '0.0701M', continent: 'Europe', rank: 43 }, // Dublin
+            { country: 'Sweden', count: 24.05, capital: { lat: 59.3293, lon: 18.0686 }, rawCount: '0.2405M', continent: 'Europe', rank: 16 }, // Stockholm
+            { country: 'Norway', count: 11.76, capital: { lat: 59.9139, lon: 10.7522 }, rawCount: '0.1176M', continent: 'Europe', rank: 30 }, // Oslo
+            { country: 'Finland', count: 11.16, capital: { lat: 60.1699, lon: 24.9384 }, rawCount: '0.1116M', continent: 'Europe', rank: 31 }, // Helsinki
+            { country: 'Estonia', count: 2.29, capital: { lat: 59.4369, lon: 24.7535 }, rawCount: '0.0229M', continent: 'Europe', rank: 71 }, // Tallinn
+            { country: 'Latvia', count: 2.03, capital: { lat: 56.9496, lon: 24.1052 }, rawCount: '0.0203M', continent: 'Europe', rank: 73 }, // Riga
+            { country: 'Lithuania', count: 3.49, capital: { lat: 54.6872, lon: 25.2797 }, rawCount: '0.0349M', continent: 'Europe', rank: 62 }, // Vilnius
+            { country: 'Austria', count: 10.81, capital: { lat: 48.2082, lon: 16.3738 }, rawCount: '0.1081M', continent: 'Europe', rank: 32 }, // Vienna
+            { country: 'Hungary', count: 6.69, capital: { lat: 47.4979, lon: 19.0402 }, rawCount: '0.0669M', continent: 'Europe', rank: 44 }, // Budapest
+            { country: 'Belarus', count: 8.54, capital: { lat: 53.9041, lon: 27.5576 }, rawCount: '0.0854M', continent: 'Europe', rank: 41 }, // Minsk
+            { country: 'Poland', count: 38.62, capital: { lat: 52.2297, lon: 21.0122 }, rawCount: '0.3862M', continent: 'Europe', rank: 9 }, // Warsaw
+            { country: 'Moldova', count: 1.09, capital: { lat: 47.0105, lon: 28.8638 }, rawCount: '0.0109M', continent: 'Europe', rank: 84 }, // Chisinau
+            { country: 'Switzerland', count: 18.11, capital: { lat: 46.9480, lon: 7.4474 }, rawCount: '0.1811M', continent: 'Europe', rank: 20 }, // Bern
+            { country: 'Greece', count: 7.03, capital: { lat: 37.9838, lon: 23.7275 }, rawCount: '0.0703M', continent: 'Europe', rank: 43 }, // Athens
+            { country: 'Bulgaria', count: 6.82, capital: { lat: 42.6977, lon: 23.3219 }, rawCount: '0.0682M', continent: 'Europe', rank: 45 }, // Sofia
+            { country: 'Denmark', count: 11.66, capital: { lat: 55.6761, lon: 12.5683 }, rawCount: '0.1166M', continent: 'Europe', rank: 31 }, // Copenhagen
+            // South America
+            { country: 'Brazil', count: 80.00, capital: { lat: -15.8267, lon: -47.9218 }, rawCount: '0.8M', continent: 'South America', rank: 6 }, // Brasilia
+            { country: 'Argentina', count: 25.71, capital: { lat: -34.6118, lon: -58.3960 }, rawCount: '0.2571M', continent: 'South America', rank: 13 }, // Buenos Aires
+            { country: 'Chile', count: 8.34, capital: { lat: -33.4489, lon: -70.6693 }, rawCount: '0.0834M', continent: 'South America', rank: 40 }, // Santiago
+            { country: 'Colombia', count: 18.35, capital: { lat: 4.7110, lon: -74.0721 }, rawCount: '0.1835M', continent: 'South America', rank: 22 }, // Bogota
+            { country: 'Venezuela', count: 3.34, capital: { lat: 10.4806, lon: -66.9034 }, rawCount: '0.0334M', continent: 'South America', rank: 65 }, // Caracas
+            { country: 'Peru', count: 6.4, capital: { lat: -12.0464, lon: -77.0428 }, rawCount: '0.064M', continent: 'South America', rank: 46 }, // Lima
+            { country: 'Bolivia', count: 1.21, capital: { lat: -16.5000, lon: -68.1500 }, rawCount: '0.0121M', continent: 'South America', rank: 82 }, // La Paz
+            { country: 'Paraguay', count: 0.83, capital: { lat: -25.2865, lon: -57.6359 }, rawCount: '0.0083M', continent: 'South America', rank: 86 }, // Asuncion
+            { country: 'Uruguay', count: 2.73, capital: { lat: -34.9011, lon: -56.1645 }, rawCount: '0.0273M', continent: 'South America', rank: 70 }, // Montevideo
+            { country: 'Ecuador', count: 2.81, capital: { lat: -0.2299, lon: -78.5249 }, rawCount: '0.0281M', continent: 'South America', rank: 69 }, // Quito
+            { country: 'Suriname', count: 0.05, capital: { lat: 5.8520, lon: -55.2038 }, rawCount: '0.0005M', continent: 'South America', rank: 106 }, // Paramaribo
+            { country: 'Guyana', count: 0.04, capital: { lat: 6.8013, lon: -58.1553 }, rawCount: '0.0004M', continent: 'South America', rank: 107 }, // Georgetown
+            // Africa
+            { country: 'Nigeria', count: 17.69, capital: { lat: 9.0820, lon: 8.6753 }, rawCount: '0.1769M', continent: 'Africa', rank: 23 }, // Abuja
+            { country: 'South Africa', count: 10.5, capital: { lat: -25.7479, lon: 28.2293 }, rawCount: '0.105M', continent: 'Africa', rank: 33 }, // Pretoria
+            { country: 'Madagascar', count: 0.63, capital: { lat: -18.9100, lon: 47.5361 }, rawCount: '0.0063M', continent: 'Africa', rank: 90 }, // Antananarivo
+            { country: 'Botswana', count: 0.15, capital: { lat: -24.6544, lon: 25.9089 }, rawCount: '0.0015M', continent: 'Africa', rank: 101 }, // Gaborone
+            { country: 'Namibia', count: 0.18, capital: { lat: -22.5592, lon: 17.0832 }, rawCount: '0.0018M', continent: 'Africa', rank: 100 }, // Windhoek
+            { country: 'Sudan', count: 0.33, capital: { lat: 15.5518, lon: 32.5324 }, rawCount: '0.0033M', continent: 'Africa', rank: 98 }, // Khartoum
+            { country: 'Ethiopia', count: 2.27, capital: { lat: 9.0350, lon: 38.7469 }, rawCount: '0.0227M', continent: 'Africa', rank: 71 }, // Addis Ababa
+            { country: 'Libya', count: 0.23, capital: { lat: 32.8872, lon: 13.1874 }, rawCount: '0.0023M', continent: 'Africa', rank: 98 }, // Tripoli
+            { country: 'Egypt', count: 11.86, capital: { lat: 30.0444, lon: 31.2357 }, rawCount: '0.1186M', continent: 'Africa', rank: 29 }, // Cairo
+            { country: 'Algeria', count: 2.03, capital: { lat: 36.7525, lon: 3.0420 }, rawCount: '0.0203M', continent: 'Africa', rank: 73 }, // Algiers
+            { country: 'Tunisia', count: 3.01, capital: { lat: 36.8065, lon: 10.1815 }, rawCount: '0.0301M', continent: 'Africa', rank: 67 }, // Tunis
+            { country: 'Morocco', count: 4.44, capital: { lat: 34.0209, lon: -6.8416 }, rawCount: '0.0444M', continent: 'Africa', rank: 54 }, // Rabat
+            { country: 'Mauritania', count: 0.06, capital: { lat: 18.0735, lon: -15.9582 }, rawCount: '0.0006M', continent: 'Africa', rank: 104 }, // Nouakchott
+            { country: 'Gabon', count: 0.05, capital: { lat: 0.3475, lon: 9.4287 }, rawCount: '0.0005M', continent: 'Africa', rank: 106 }, // Libreville
+            { country: 'Cameroon', count: 1.23, capital: { lat: 3.8667, lon: 11.5167 }, rawCount: '0.0123M', continent: 'Africa', rank: 81 }, // Yaounde
+            { country: 'Benin', count: 0.39, capital: { lat: 6.4965, lon: 2.6037 }, rawCount: '0.0039M', continent: 'Africa', rank: 99 }, // Porto-Novo
+            { country: 'Togo', count: 0.22, capital: { lat: 6.1282, lon: 1.2215 }, rawCount: '0.0022M', continent: 'Africa', rank: 99 }, // Lome
+            { country: 'Ghana', count: 3.3, capital: { lat: 5.5560, lon: -0.1969 }, rawCount: '0.033M', continent: 'Africa', rank: 65 }, // Accra
+            { country: 'Kenya', count: 9.37, capital: { lat: -1.2921, lon: 36.8219 }, rawCount: '0.0937M', continent: 'Africa', rank: 37 }, // Nairobi
+            { country: 'Uganda', count: 1.8, capital: { lat: 0.3476, lon: 32.5825 }, rawCount: '0.018M', continent: 'Africa', rank: 75 }, // Kampala
+            { country: 'Tanzania', count: 0.95, capital: { lat: -6.7924, lon: 39.2083 }, rawCount: '0.0095M', continent: 'Africa', rank: 86 }, // Dar es Salaam
+            { country: 'Rwanda', count: 1.21, capital: { lat: -1.9403, lon: 30.0588 }, rawCount: '0.0121M', continent: 'Africa', rank: 82 }, // Kigali
+            { country: 'Burundi', count: 0.07, capital: { lat: -3.3869, lon: 29.3622 }, rawCount: '0.0007M', continent: 'Africa', rank: 103 }, // Bujumbura
+            { country: 'Somalia', count: 0.3, capital: { lat: 2.0371, lon: 45.3437 }, rawCount: '0.003M', continent: 'Africa', rank: 100 }, // Mogadishu
+            { country: 'Senegal', count: 0.58, capital: { lat: 14.7167, lon: -17.4677 }, rawCount: '0.0058M', continent: 'Africa', rank: 91 }, // Dakar
+            { country: 'Guinea-Bissau', count: 0.01, capital: { lat: 11.8636, lon: -15.5957 }, rawCount: '0.0001M', continent: 'Africa', rank: 108 }, // Bissau
+            { country: 'Bissau', count: 0.08, capital: { lat: 11.8636, lon: -15.5957 }, rawCount: '0.0008M', continent: 'Africa', rank: 103 }, // Bissau (special entry)
+            { country: 'Mali', count: 0.09, capital: { lat: 12.6392, lon: -8.0029 }, rawCount: '0.0009M', continent: 'Africa', rank: 102 }, // Bamako
+            { country: 'Niger', count: 0.05, capital: { lat: 13.5137, lon: 2.1098 }, rawCount: '0.0005M', continent: 'Africa', rank: 106 }, // Niamey
+            { country: 'Chad', count: 0.04, capital: { lat: 12.1348, lon: 15.0557 }, rawCount: '0.0004M', continent: 'Africa', rank: 107 }, // N'Djamena
+            { country: 'Angola', count: 0.71, capital: { lat: -8.8368, lon: 13.2343 }, rawCount: '0.0071M', continent: 'Africa', rank: 88 }, // Luanda
+            { country: 'Eritrea', count: 0.01, capital: { lat: 15.3386, lon: 38.9318 }, rawCount: '0.0001M', continent: 'Africa', rank: 108 }, // Asmara
+            // Oceania
+            { country: 'Australia', count: 38.03, capital: { lat: -35.2809, lon: 149.1300 }, rawCount: '0.3803M', continent: 'Oceania', rank: 9 }, // Canberra
+            { country: 'New Zealand', count: 9.16, capital: { lat: -41.2865, lon: 174.7762 }, rawCount: '0.0916M', continent: 'Oceania', rank: 38 }, // Wellington
+            { country: 'Papua New Guinea', count: 0.06, capital: { lat: -9.4438, lon: 147.1803 }, rawCount: '0.0006M', continent: 'Oceania', rank: 104 }, // Port Moresby
+            { country: 'Fiji', count: 0.22, capital: { lat: -18.1416, lon: 178.4419 }, rawCount: '0.0022M', continent: 'Oceania', rank: 99 }, // Suva
+            { country: 'New Caledonia', count: 0.1, capital: { lat: -22.2713, lon: 166.4447 }, rawCount: '0.001M', continent: 'Oceania', rank: 102 }, // Noumea
+            { country: 'Vanuatu', count: 0.02, capital: { lat: -17.7333, lon: 168.3167 }, rawCount: '0.0002M', continent: 'Oceania', rank: 107 }, // Port Vila
+            // Middle East
+            { country: 'Oman', count: 0.27, capital: { lat: 23.5841, lon: 58.4079 }, rawCount: '0.0027M', continent: 'Asia', rank: 99 }, // Muscat
+            { country: 'United Arab Emirates', count: 5.14, capital: { lat: 24.4539, lon: 54.3773 }, rawCount: '0.0514M', continent: 'Asia', rank: 52 }, // Abu Dhabi
+            { country: 'Qatar', count: 0.38, capital: { lat: 25.2854, lon: 51.5310 }, rawCount: '0.0038M', continent: 'Asia', rank: 99 }, // Doha
+            { country: 'Kuwait', count: 0.37, capital: { lat: 29.3759, lon: 47.9805 }, rawCount: '0.0037M', continent: 'Asia', rank: 100 }, // Kuwait City
+            // Europe (added)
+            { country: 'France', count: 68.88, capital: { lat: 48.8566, lon: 2.3522 }, rawCount: '0.6888M', continent: 'Europe', rank: 8 }, // Paris
+            { country: 'Luxembourg', count: 1.16, capital: { lat: 49.6116, lon: 6.1319 }, rawCount: '0.0116M', continent: 'Europe', rank: 83 }, // Luxembourg City
+            { country: 'Iceland', count: 0.97, capital: { lat: 64.1466, lon: -21.9426 }, rawCount: '0.0097M', continent: 'Europe', rank: 86 }, // Reykjavik
+            { country: 'Slovenia', count: 1.94, capital: { lat: 46.0569, lon: 14.5058 }, rawCount: '0.0194M', continent: 'Europe', rank: 74 }, // Ljubljana
+            { country: 'Croatia', count: 3.5, capital: { lat: 45.8150, lon: 15.9820 }, rawCount: '0.035M', continent: 'Europe', rank: 63 }, // Zagreb
+            { country: 'Montenegro', count: 0.56, capital: { lat: 42.4304, lon: 19.2594 }, rawCount: '0.0056M', continent: 'Europe', rank: 90 }, // Podgorica
+            { country: 'Albania', count: 0.53, capital: { lat: 41.3275, lon: 19.8189 }, rawCount: '0.0053M', continent: 'Europe', rank: 91 }, // Tirana
+            { country: 'Cyprus', count: 1.4, capital: { lat: 35.1856, lon: 33.3823 }, rawCount: '0.014M', continent: 'Europe', rank: 79 }, // Nicosia
+            { country: 'Lebanon', count: 1.02, capital: { lat: 33.8938, lon: 35.5018 }, rawCount: '0.0102M', continent: 'Asia', rank: 85 }, // Beirut
+            { country: 'Djibouti', count: 0.01, capital: { lat: 11.5890, lon: 43.1450 }, rawCount: '0.0001M', continent: 'Africa', rank: 108 } // Djibouti City
+        ];
+
+        // Sort by developer count and assign rankings
+        countryData.sort((a, b) => b.count - a.count);
+        countryData.forEach((country, index) => {
+            country.rank = index + 1;
+        });
+
+        // Calculate maximum value for normalizing column heights
+        const maxCount = Math.max(...countryData.map(c => c.count));
+        
+        // Create cubes for each country (add to Earth as a group)
+        const countryGroup = new THREE.Group();
+        const countryBars = [];
+        
+        for (const countryObj of countryData) {
+            // Calculate cube height based on developer count (minimum 0.03, maximum 0.25)
+            const height = 0.03 + (countryObj.count / maxCount) * 0.22;
+            const width = 0.01; // Cube width
+            
+            // Create cube geometry
+            const boxGeometry = new THREE.BoxGeometry(width, height, width);
+            const boxMaterial = new THREE.MeshPhongMaterial({ 
+                color: continentColors[countryObj.continent],
+                transparent: true,
+                opacity: 0.8
+            });
+            const box = new THREE.Mesh(boxGeometry, boxMaterial);
+            
+            // Use capital city coordinates to calculate 3D position (above Earth surface)
+            const basePosition = latLongToVector3(
+                countryObj.capital.lat, 
+                countryObj.capital.lon, 
+                1.0 // Earth surface position
+            );
+            
+            // Set cube base position (on Earth surface)
+            box.position.copy(basePosition.clone().multiplyScalar(1 + height/2));
+            
+            // Fix: Make cube perpendicular to Earth surface (i.e., normal direction to Earth center)
+            // Set cube's upward direction to the radial direction from Earth center to that point
+            const upVector = new THREE.Vector3(0, 1, 0); // Default cube upward direction
+            const targetDirection = basePosition.clone().normalize(); // Direction from Earth center to that point
+            
+            // Create a quaternion to rotate cube so its y-axis points to the radial direction
+            const quaternion = new THREE.Quaternion().setFromUnitVectors(upVector, targetDirection);
+            box.quaternion.copy(quaternion);
+
+            // Add cube to country group
+            countryGroup.add(box);
+            
+            // Store cube object for later operations
+            countryBars.push({
+                mesh: box,
+                country: countryObj.country,
+                continent: countryObj.continent,
+                originalHeight: height,
+                originalScale: box.scale.clone(),
+                position: basePosition.clone(),
+                rawCount: countryObj.rawCount,
+                rank: countryObj.rank,
+                capital: countryObj.capital
+            });
+        }
+        
+        // Add country group to scene
+        scene.add(countryGroup);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0x404040, 1);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(2, 1, 3).normalize();
+        scene.add(directionalLight);
+
+        // Mouse control variables
+        let isDragging = false;
+        let previousMousePosition = {
+            x: 0,
+            y: 0
+        };
+
+        // Mouse event handlers
+        function onMouseDown(event) {
+            isDragging = true;
+            previousMousePosition = {
+                x: event.clientX,
+                y: event.clientY
+            };
+        }
+
+        function onMouseMove(event) {
+            if (isDragging) {
+                const deltaX = event.clientX - previousMousePosition.x;
+                const deltaY = event.clientY - previousMousePosition.y;
+
+                earth.rotation.y += deltaX * 0.01;
+                earth.rotation.x += deltaY * 0.01;
+                
+                // Also rotate country cube group
+                countryGroup.rotation.y += deltaX * 0.01;
+                countryGroup.rotation.x += deltaY * 0.01;
+
+                previousMousePosition = {
+                    x: event.clientX,
+                    y: event.clientY
+                };
+            }
+
+            // Check if mouse is hovering over country cubes
+            const mouse = new THREE.Vector2();
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+
+            // Detect intersections with cubes
+            const intersects = raycaster.intersectObjects(countryBars.map(b => b.mesh));
+
+            // Reset all cube sizes
+            countryBars.forEach(bar => {
+                bar.mesh.scale.copy(bar.originalScale);
+            });
+
+            if (intersects.length > 0) {
+                // Enlarge selected cube
+                const intersectedBar = intersects[0].object;
+                const barInfo = countryBars.find(b => b.mesh === intersectedBar);
+                if (barInfo) {
+                    intersectedBar.scale.set(
+                        barInfo.originalScale.x * 1.3,
+                        barInfo.originalScale.y * 1.3,
+                        barInfo.originalScale.z * 1.3
+                    );
+                    
+                    const tooltip = document.getElementById('tooltip');
+                    tooltip.style.left = (event.clientX + 10) + 'px';
+                    tooltip.style.top = (event.clientY + 10) + 'px';
+                    tooltip.innerHTML = `${barInfo.country} (${barInfo.continent}): ${barInfo.rawCount}`;
+                    tooltip.style.display = 'block';
+                    
+                    // Update left panel country details
+                    document.getElementById('countryName').textContent = barInfo.country;
+                    document.getElementById('countryContinent').textContent = barInfo.continent;
+                    document.getElementById('countryDevelopers').textContent = barInfo.rawCount;
+                    document.getElementById('countryRank').textContent = '#' + barInfo.rank;
+                    document.getElementById('countryDetails').style.display = 'block';
+                    return;
+                }
+            }
+
+            document.getElementById('tooltip').style.display = 'none';
+            document.getElementById('countryDetails').style.display = 'none';
+        }
+
+        function onMouseUp() {
+            isDragging = false;
+        }
+
+        function onMouseLeave() {
+            isDragging = false;
+            
+            // Reset all cube sizes
+            countryBars.forEach(bar => {
+                bar.mesh.scale.copy(bar.originalScale);
+            });
+            
+            document.getElementById('tooltip').style.display = 'none';
+            document.getElementById('countryDetails').style.display = 'none';
+        }
+
+        // Disable context menu
+        function onContextMenu(e) {
+            e.preventDefault();
+        }
+
+        // Add event listeners
+        renderer.domElement.addEventListener('mousedown', onMouseDown, false);
+        window.addEventListener('mousemove', onMouseMove, false);
+        window.addEventListener('mouseup', onMouseUp, false);
+        renderer.domElement.addEventListener('mouseleave', onMouseLeave, false);
+        renderer.domElement.addEventListener('contextmenu', onContextMenu, false);
+
+        // Window resize handling
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        window.addEventListener('resize', onWindowResize, false);
+
+        // Search functionality - using easing animation for smooth transition
+        let isAnimating = false;
+        
+        function findCountry() {
+            if (isAnimating) return; // Return if currently animating
+            
+            const searchValue = document.getElementById('countrySearch').value.trim().toLowerCase();
+            if (!searchValue) return;
+            
+            const foundCountry = countryBars.find(bar => 
+                bar.country.toLowerCase().includes(searchValue) || 
+                bar.continent.toLowerCase().includes(searchValue)
+            );
+            
+            if (foundCountry) {
+                // Reset all cube sizes
+                countryBars.forEach(bar => {
+                    bar.mesh.scale.copy(bar.originalScale);
+                });
+                
+                // Enlarge selected cube
+                foundCountry.mesh.scale.set(
+                    foundCountry.originalScale.x * 1.5,
+                    foundCountry.originalScale.y * 1.5,
+                    foundCountry.originalScale.z * 1.5
+                );
+                
+                // Update country details panel
+                document.getElementById('countryName').textContent = foundCountry.country;
+                document.getElementById('countryContinent').textContent = foundCountry.continent;
+                document.getElementById('countryDevelopers').textContent = foundCountry.rawCount;
+                document.getElementById('countryRank').textContent = '#' + foundCountry.rank;
+                document.getElementById('countryDetails').style.display = 'block';
+                
+                // Get target country coordinates
+                const targetLat = foundCountry.capital.lat;
+                const targetLon = foundCountry.capital.lon;
+                
+                // Calculate target position Euler angles
+                const targetPhi = (90 - targetLat) * Math.PI / 180;
+                const targetTheta = (targetLon + 180) * Math.PI / 180;
+                
+                // Calculate current rotation angles
+                const currentRotationY = earth.rotation.y % (Math.PI * 2);
+                const currentRotationX = earth.rotation.x % (Math.PI * 2);
+                
+                // Calculate target rotation angles
+                let targetRotationY = -targetTheta;
+                let targetRotationX = targetPhi - Math.PI/2;
+                
+                // Correct rotation angle range to avoid jumps
+                targetRotationY = ((targetRotationY - currentRotationY + Math.PI) % (Math.PI * 2)) - Math.PI + currentRotationY;
+                targetRotationX = ((targetRotationX - currentRotationX + Math.PI) % (Math.PI * 2)) - Math.PI + currentRotationX;
+                
+                // Easing animation parameters
+                let startTime = null;
+                const duration = 1500; // Animation duration (milliseconds)
+                
+                function animateRotation(timestamp) {
+                    if (!startTime) startTime = timestamp;
+                    const progress = Math.min(1, (timestamp - startTime) / duration);
+                    
+                    // Use easing function (easeOutCubic)
+                    const easeProgress = 1 - Math.pow(1 - progress, 3);
+                    
+                    // Interpolate to calculate current rotation angles
+                    earth.rotation.y = currentRotationY + (targetRotationY - currentRotationY) * easeProgress;
+                    earth.rotation.x = currentRotationX + (targetRotationX - currentRotationX) * easeProgress;
+                    
+                    // Synchronize rotation of country cube group
+                    countryGroup.rotation.y = earth.rotation.y;
+                    countryGroup.rotation.x = earth.rotation.x;
+                    
+                    if (progress < 1) {
+                        requestAnimationFrame(animateRotation);
+                    } else {
+                        isAnimating = false; // Animation finished
+                    }
+                }
+                
+                isAnimating = true;
+                requestAnimationFrame(animateRotation);
+            } else {
+                alert('No matching country or region found');
+            }
+        }
+
+        // Listen for Enter key
+        document.getElementById('countrySearch').addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                findCountry();
+            }
+        });
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (!isDragging && !isAnimating) {
+                earth.rotation.y += 0.001;
+                countryGroup.rotation.y += 0.001; // Synchronize rotation of country cube group
+                clouds.rotation.y += 0.0015; // Clouds rotate slightly faster
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+</body>
+</html>

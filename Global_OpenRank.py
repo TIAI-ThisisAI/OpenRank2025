@@ -231,6 +231,29 @@ def analyze_rank_jumps(data: dict, threshold: int = 3) -> dict:
         for company, ranks in data.items()
     }
 
+def compute_rank_turnover(data: dict, years: list, top_k: int = 10) -> dict:
+    """
+    计算 Top-K 公司集合的年度更替率
+    """
+    turnover = {}
+
+    for i in range(1, len(years)):
+        prev_set = {
+            c for c, r in data.items()
+            if r[i - 1] is not None and r[i - 1] <= top_k
+        }
+        curr_set = {
+            c for c, r in data.items()
+            if r[i] is not None and r[i] <= top_k
+        }
+
+        if prev_set:
+            turnover[years[i]] = 1 - len(prev_set & curr_set) / len(prev_set)
+        else:
+            turnover[years[i]] = 0.0
+
+    return turnover
+
 
 if __name__ == "__main__":
     run_openrank_visualization(

@@ -208,6 +208,21 @@ def compute_head_stability(data: dict, years: list, top_k: int = 5) -> float:
 
     return len(intersections) / len(unions) if unions else 0.0
 
+def compute_rank_jump_frequency(company_ranks: list, threshold: int = 3) -> int:
+    """
+    计算排名发生显著跃迁的次数
+    """
+    jumps = 0
+    for i in range(1, len(company_ranks)):
+        if (
+            company_ranks[i] is not None
+            and company_ranks[i - 1] is not None
+            and abs(company_ranks[i] - company_ranks[i - 1]) >= threshold
+        ):
+            jumps += 1
+    return jumps
+
+
 
 if __name__ == "__main__":
     run_openrank_visualization(

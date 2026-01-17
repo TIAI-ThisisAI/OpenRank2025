@@ -255,6 +255,20 @@ def compute_rank_turnover(data: dict, years: list, top_k: int = 10) -> dict:
     return turnover
 
 
+def compute_openrank_evolution_index(company_ranks: list) -> float:
+    """
+    综合排名改善幅度与稳定性，构建演化强度指数
+    """
+    valid = [r for r in company_ranks if r is not None]
+    if len(valid) < 2:
+        return 0.0
+
+    improvement = valid[0] - valid[-1]
+    volatility = compute_rank_volatility(valid)
+
+    return improvement / (1 + volatility)
+
+
 if __name__ == "__main__":
     run_openrank_visualization(
         json_file="openrank_chart_Chinese_data_2.json",

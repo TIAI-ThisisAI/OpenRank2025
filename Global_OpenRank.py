@@ -189,6 +189,24 @@ def compute_rank_concentration(data: dict, years: list, top_k: int = 5) -> dict:
 
     return concentration
 
+def compute_head_stability(data: dict, years: list, top_k: int = 5) -> float:
+    """
+    衡量 Top-K 公司集合在时间维度上的稳定性
+    """
+    yearly_sets = []
+
+    for idx in range(len(years)):
+        top_set = {
+            company
+            for company, ranks in data.items()
+            if ranks[idx] is not None and ranks[idx] <= top_k
+        }
+        yearly_sets.append(top_set)
+
+    intersections = set.intersection(*yearly_sets) if yearly_sets else set()
+    unions = set.union(*yearly_sets) if yearly_sets else set()
+
+    return len(intersections) / len(unions) if unions else 0.0
 
 
 if __name__ == "__main__":

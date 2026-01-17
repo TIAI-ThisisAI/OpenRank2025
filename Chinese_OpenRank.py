@@ -173,6 +173,22 @@ def compute_rank_volatility(
         volatility[company] = np.std(valid) if len(valid) > 1 else 0
     return volatility
 
+def compute_rank_concentration(data: dict, years: list, top_k: int = 5) -> dict:
+    """
+    计算每一年的 Top-K 排名集中度（出现公司数）
+    """
+    concentration = {}
+
+    for idx, year in enumerate(years):
+        companies_in_top_k = [
+            company
+            for company, ranks in data.items()
+            if ranks[idx] is not None and ranks[idx] <= top_k
+        ]
+        concentration[year] = len(set(companies_in_top_k))
+
+    return concentration
+
 
 
 if __name__ == "__main__":

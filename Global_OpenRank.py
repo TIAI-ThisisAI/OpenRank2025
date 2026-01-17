@@ -222,6 +222,14 @@ def compute_rank_jump_frequency(company_ranks: list, threshold: int = 3) -> int:
             jumps += 1
     return jumps
 
+def analyze_rank_jumps(data: dict, threshold: int = 3) -> dict:
+    """
+    统计所有公司的排名跃迁次数
+    """
+    return {
+        company: compute_rank_jump_frequency(ranks, threshold)
+        for company, ranks in data.items()
+    }
 
 
 if __name__ == "__main__":

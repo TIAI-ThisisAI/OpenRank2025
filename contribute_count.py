@@ -427,6 +427,16 @@ def compute_rank_periodicity(company_ranks: list) -> float:
     
     return sum(diffs) / len(diffs)
 
+def analyze_all_rank_periodicity(data: dict) -> dict:
+    """
+    分析所有公司排名的周期性
+    """
+    return {
+        company: compute_rank_periodicity(ranks)
+        for company, ranks in data.items()
+    }
+
+
 
 def main():
     """主函数，执行整个流程"""

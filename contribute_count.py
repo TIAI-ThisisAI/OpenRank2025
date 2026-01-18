@@ -383,6 +383,23 @@ def generate_markdown_report(df, report_file='repositories_report.md'):
         logging.error(f"生成 Markdown 报告时发生错误：{e}")
         raise e
 
+def compute_average_rank_for_companies(data: dict, years: list, companies: list) -> dict:
+    """
+    计算指定公司在指定年份范围内的平均排名
+    """
+    avg_ranks = {}
+
+    for company in companies:
+        if company in data:
+            valid_ranks = [
+                rank for rank, year in zip(data[company], years) if rank is not None
+            ]
+            if valid_ranks:
+                avg_ranks[company] = sum(valid_ranks) / len(valid_ranks)
+
+    return avg_ranks
+
+
 def main():
     """主函数，执行整个流程"""
     try:

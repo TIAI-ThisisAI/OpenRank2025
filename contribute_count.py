@@ -436,6 +436,31 @@ def analyze_all_rank_periodicity(data: dict) -> dict:
         for company, ranks in data.items()
     }
 
+from sklearn.linear_model import LinearRegression
+import numpy as np
+
+def predict_next_year_rank(company_ranks: list, years: list) -> float:
+    """
+    使用线性回归预测公司下一年的排名
+    """
+    valid_ranks = [r for r in company_ranks if r is not None]
+    valid_years = [year for rank, year in zip(company_ranks, years) if rank is not None]
+
+    if len(valid_ranks) < 2:
+        return float('inf')
+
+    # 转换数据格式
+    X = np.array(valid_years).reshape(-1, 1)
+    y = np.array(valid_ranks)
+
+    # 线性回归模型
+    model = LinearRegression()
+    model.fit(X, y)
+
+    # 预测下一年的排名
+    next_year = years[-1] + 1
+    predicted_rank = model.predict(np.array([[next_year]]))[0]
+    return predicted_rank
 
 
 def main():

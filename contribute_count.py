@@ -411,6 +411,21 @@ def compute_rank_difference(company_ranks_1: list, company_ranks_2: list) -> lis
     ]
     return rank_diff
 
+def compute_rank_periodicity(company_ranks: list) -> float:
+    """
+    计算公司排名的周期性（基于排名变化的频率）
+    """
+    valid_ranks = [r for r in company_ranks if r is not None]
+    if len(valid_ranks) < 2:
+        return 0.0
+
+    # 计算排名变化的频率
+    diffs = [
+        abs(valid_ranks[i] - valid_ranks[i - 1])
+        for i in range(1, len(valid_ranks))
+    ]
+    
+    return sum(diffs) / len(diffs)
 
 
 def main():

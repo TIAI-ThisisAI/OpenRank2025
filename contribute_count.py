@@ -400,6 +400,19 @@ def compute_average_rank_for_companies(data: dict, years: list, companies: list)
     return avg_ranks
 
 
+def compute_rank_difference(company_ranks_1: list, company_ranks_2: list) -> list:
+    """
+    计算两个公司在每年中的排名差异
+    """
+    rank_diff = [
+        abs(r1 - r2)
+        for r1, r2 in zip(company_ranks_1, company_ranks_2)
+        if r1 is not None and r2 is not None
+    ]
+    return rank_diff
+
+
+
 def main():
     """主函数，执行整个流程"""
     try:

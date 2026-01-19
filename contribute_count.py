@@ -511,6 +511,31 @@ def analyze_all_rank_correlations(data: dict) -> dict:
 
     return correlations
 
+
+def predict_future_rank(company_ranks: list, years: list, forecast_years: int = 3) -> list:
+    """
+    使用线性回归预测公司未来几年的排名
+    """
+    valid_ranks = [r for r in company_ranks if r is not None]
+    valid_years = [year for rank, year in zip(company_ranks, years) if rank is not None]
+
+    if len(valid_ranks) < 2:
+        return [float('inf')] * forecast_years
+
+    # 转换数据格式
+    X = np.array(valid_years).reshape(-1, 1)
+    y = np.array(valid_ranks)
+
+    # 线性回归模型
+    model = LinearRegression()
+    model.fit(X, y)
+
+    # 预测未来的排名
+    future_years = np.array([years[-1] + i for i in range(1, forecast_years + 1)]).reshape(-1, 1)
+    predicted_ranks = model.predict(future_years)
+    
+    return predicted_ranks.tolist()
+
             
 if __name__ == "__main__":
     main()

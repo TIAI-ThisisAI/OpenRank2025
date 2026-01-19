@@ -283,3 +283,60 @@ class CollectionEngine:
         if buffer:
             await self.db.save_batch(buffer)
             self.stats["saved"] += len(buffer)
+
+
+# ======================== 主程序 ========================
+
+async def main(repos: List[str]):
+    # 1. 检查配置
+    if not AppConfig.GITHUB_TOKENS:
+        logger.warning("无 Token 模式，速率受限。建议设置 GITHUB_TOKENS 环境变量。")
+
+    # 2. 初始化资源
+    db = AsyncDatabase(AppConfig.DB_PATH)
+    await db.connect()
+    
+    token_pool = TokenPool(AppConfig.GITHUB_TOKENS)
+    engine = CollectionEngine(token_pool, db)
+    
+    # 3. 准备任务
+    until_ts = datetime.now(timezone.utc)
+    since_ts = until_ts - timedelta(days=30)
+    
+    pbar = tqdm(desc="Fetching", unit=" commits")
+    
+    # 启动消费者任务 (后台运行)
+    consumer_task = asyncio.create_task(engine.consumer())
+    
+    # 启动生产者任务 (使用 Semaphore 限制并发仓库数)
+    # 防止同时对 GitHub 发起过多连接导致封禁或内存暴涨
+    sem = asyncio.Semaphore(AppConfig.CONCURRENT_REPOS)
+    
+    async def run_repo(r):
+        async with sem:
+            await engine.producer(r, since_ts.isoformat(), until_ts.isoformat(), pbar)
+
+    # 等待所有生产者完成
+    await asyncio.gather(*[run_repo(r) for r in repos])
+    
+    # 4. 优雅停止 (Graceful Shutdown)
+    await engine.data_queue.put(None) # 发送哨兵信号通知消费者退出
+    await consumer_task # 等待消费者处理完剩余数据
+    
+    pbar.close()
+    await db.close()
+    logger.info(f"任务完成，共入库 {engine.stats['saved']} 条记录")
+
+if __name__ == "__main__":
+    target_repos = [
+        "python/cpython", "torvalds/linux", "microsoft/vscode",
+        "tensorflow/tensorflow", "django/django"
+    ]
+    
+    try:
+        # Windows 下 asyncio 需要特定的事件循环策略
+        if sys.platform == 'win32':
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        asyncio.run(main(target_repos))
+    except KeyboardInterrupt:
+        print("\n用户终止")

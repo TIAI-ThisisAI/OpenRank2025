@@ -495,6 +495,22 @@ def main():
     finally:
         if 'client' in locals() and client.is_connected():
             client.close()
+
+
+def analyze_all_rank_correlations(data: dict) -> dict:
+    """
+    对所有公司计算排名之间的皮尔逊相关性
+    """
+    correlations = {}
+
+    for company_1 in data:
+        for company_2 in data:
+            if company_1 != company_2:
+                corr = compute_rank_correlation(data[company_1], data[company_2])
+                correlations[f"{company_1} vs {company_2}"] = corr
+
+    return correlations
+
             
 if __name__ == "__main__":
     main()

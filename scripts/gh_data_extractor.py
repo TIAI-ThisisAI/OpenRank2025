@@ -392,3 +392,99 @@ class GitHubService:
             except Exception as e:
                 logger.error(f"Fetch loop error for {repo}: {e}")
                 break
+
+# -----------------------------------------------------------------------------
+# 核心逻辑控制器 (Controller)
+# -----------------------------------------------------------------------------
+class InsightEngine:
+    def __init__(self, config: AppConfig):
+        self.config = config
+    
+    async def run(self, projects: List[str]):
+        # 初始化数据库连接管理器
+        with StorageManager(self.config.db_path) as storage:
+            # [关键逻辑] 连接复用
+            # 限制 TCP 连接池大小，防止并发请求过多导致本地端口耗尽或被对方防火墙封禁。
+            conn = aiohttp.TCPConnector(limit=self.config.concurrency)
+            async with aiohttp.ClientSession(connector=conn) as session:
+                self.gh_service = GitHubService(session, self.config.github_token, self.config)
+                self.geo_service = GeoService(session, storage, self.config)
+                self.storage = storage # 绑定活跃的 storage 实例
+                
+                since_date = datetime.now(timezone.utc) - timedelta(days=self.config.lookback_days)
+                logger.info(f"开始分析任务 | 项目数: {len(projects)} | 周期: {self.config.lookback_days}天")
+
+                # [关键逻辑] 并发调度
+                # 为每个 repo 创建一个独立的 Task，使用 tqdm.gather 并发执行所有 Task。
+                tasks = [self._process_single_repo(p, since_date) for p in projects]
+                await tqdm.gather(*tasks, desc="Total Progress", unit="repo")
+                
+                logger.info("生成报告...")
+                self._generate_report()
+
+    async def _process_single_repo(self, repo: str, since: datetime):
+        new_commits_buffer = []
+        commit_count = 0
+        
+        try:
+            # 流式处理 commit 批次
+            async for batch in self.gh_service.fetch_commits(repo, since):
+                # [关键逻辑] 增量更新检测
+                # 1. 提取当前批次的 SHA。
+                # 2. 调用 Storage 批量检查哪些 SHA 已存在。
+                # 3. 仅保留数据库中不存在的 SHA 进行后续处理（API请求等耗时操作）。
+                shas_in_batch = [item['sha'] for item in batch if item.get('sha')]
+                existing_shas = self.storage.filter_existing_shas(shas_in_batch)
+                
+                to_process = [
+                    item for item in batch 
+                    if item.get('sha') not in existing_shas and item.get('author')
+                ]
+
+                if not to_process:
+                    continue
+
+                for item in to_process:
+                    author_login = item['author']['login']
+                    sha = item['sha']
+                    
+                    # [关键逻辑] 数据补全
+                    # 串行执行：先获取用户 Location 字符串，再解析为经纬度/国家。
+                    raw_loc = await self.gh_service.get_user_location(author_login)
+                    geo_info = await self.geo_service.resolve(raw_loc)
+                    
+                    # 时间戳转换
+                    ts_str = item['commit']['author']['date'].replace("Z", "+00:00")
+                    commit_ts = datetime.fromisoformat(ts_str).timestamp()
+
+                    new_commits_buffer.append(CommitRecord(
+                        sha=sha, repo_name=repo, author_login=author_login,
+                        timestamp=int(commit_ts), raw_location=raw_loc, **geo_info
+                    ))
+                
+                # [关键逻辑] 批量持久化
+                # 每处理完一页数据（或过滤后的一批），立即写入数据库，防止内存堆积。
+                if new_commits_buffer:
+                    self.storage.save_commits(new_commits_buffer)
+                    commit_count += len(new_commits_buffer)
+                    new_commits_buffer.clear()
+
+        except Exception as e:
+            logger.error(f"处理仓库 {repo} 时发生意外错误: {e}")
+        
+        if commit_count > 0:
+            logger.info(f"[{repo}] 完成，新增记录: {commit_count}")
+
+    def _generate_report(self):
+        stats = self.storage.get_statistics()
+        if not stats.get('total_commits'):
+            logger.warning("无数据生成报告")
+            return
+        
+        ReportGenerator(self.config.report_path).render(stats)
+        
+        abs_path = os.path.abspath(self.config.report_path)
+        try:
+            webbrowser.open(f"file://{abs_path}")
+        except Exception:
+            logger.info(f"报告已保存至: {abs_path}")

@@ -102,3 +102,20 @@ except Exception as e:
 finally:
     if 'client' in locals() and client.is_connected():
         client.close()
+
+
+def compute_yearly_growth_rate(company_ranks: list, years: list) -> list:
+    """
+    计算公司每年排名的变化率（年比年增长）
+    """
+    growth_rates = []
+
+    for i in range(1, len(company_ranks)):
+        if company_ranks[i - 1] is None or company_ranks[i] is None:
+            growth_rates.append(None)
+        else:
+            growth_rate = (company_ranks[i] - company_ranks[i - 1]) / company_ranks[i - 1]
+            growth_rates.append(growth_rate)
+
+    return growth_rates
+

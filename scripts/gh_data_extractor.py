@@ -71,7 +71,10 @@ logger = setup_logging("INFO")
 # 工具函数 (Utilities)
 # -----------------------------------------------------------------------------
 def async_retry(retries: int = 3, delay: int = 1, backoff: int = 2):
-    """异步重试装饰器，支持指数退避"""
+    """
+    [关键逻辑] 异步重试装饰器
+    用于网络请求不稳定的情况，实现指数退避策略（失败等待时间 1s -> 2s -> 4s）。
+    """
     def decorator(func: Callable):
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -116,6 +119,8 @@ class StorageManager:
         self.db_path = Path(db_path)
         self.conn: Optional[sqlite3.Connection] = None
 
+    # [关键逻辑] 上下文管理器协议
+    # 确保使用 with 语句时数据库连接自动建立，退出时自动关闭，防止资源泄漏。
     def __enter__(self):
         self.connect()
         return self
@@ -142,6 +147,8 @@ class StorageManager:
     def _init_schema(self):
         if not self.conn: return
         with self.conn:
+            # [关键逻辑] 缓存表设计
+            # 使用 raw_text (API返回的原始位置字符串) 作为主键，避免重复查询相同的地址字符串。
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS geo_cache (
                     raw_text TEXT PRIMARY KEY,
@@ -176,7 +183,11 @@ class StorageManager:
             )
 
     def filter_existing_shas(self, shas: List[str]) -> Set[str]:
-        """批量检查 SHAs，返回已存在的集合，减少 DB 查询次数"""
+        """
+        [关键逻辑] 批量去重优化
+        在处理一批 commit 之前，一次性查询数据库中已存在的 SHA。
+        避免了 N+1 问题（即避免对每个 commit 都查询一次 DB），显著提升处理速度。
+        """
         if not shas: return set()
         # SQLite 限制参数数量，大批量需分块，这里简化处理，假设 batch size 较小(100)
         placeholders = ','.join(['?'] * len(shas))
@@ -190,6 +201,8 @@ class StorageManager:
             for c in commits
         ]
         with self.conn:
+            # [关键逻辑] 批量写入
+            # 使用 executemany 进行事务性批量插入，比逐条 insert 快得多。
             self.conn.executemany(
                 "INSERT OR IGNORE INTO commits VALUES (?, ?, ?, ?, ?, ?, ?)", 
                 data
@@ -233,10 +246,18 @@ class GeoService:
         self.session = session
         self.storage = storage
         self.config = config
+        # [关键逻辑] 并发控制
+        # Nominatim API 有严格的使用策略，使用 Semaphore 限制并发数为 1。
         self._rate_limiter = asyncio.Semaphore(1)
         self._mem_cache = {} 
 
     async def resolve(self, location_str: str) -> Dict[str, Any]:
+        """
+        [关键逻辑] 三级缓存策略
+        1. L1 内存缓存: 速度最快，进程级复用。
+        2. L2 数据库缓存 (geo_cache): 持久化存储，避免重启后重新请求 API。
+        3. L3 外部 API: 仅在前两层未命中时调用，且调用后会回写缓存。
+        """
         if not location_str or not location_str.strip():
             return self._empty_result()
 
@@ -271,7 +292,8 @@ class GeoService:
                 if resp.status != 200:
                     return self._empty_result()
                 
-                # Nominatim 要求 1 秒限制
+                # [关键逻辑] 强制限流
+                # 即使有 Semaphore，仍强制 sleep 1.1秒，严格遵守 Nominatim 1秒/次 的协议要求。
                 await asyncio.sleep(1.1) 
                 data = await resp.json()
 
@@ -306,6 +328,11 @@ class GitHubService:
         self._user_info_cache: Dict[str, str] = {}
 
     async def _handle_rate_limit(self, resp: aiohttp.ClientResponse):
+        """
+        [关键逻辑] API 速率限制处理
+        检测 GitHub 返回的 403 及 RateLimit header。
+        如果耗尽，计算重置时间并挂起当前协程，而不是直接抛出错误。
+        """
         if resp.status == 403 and 'X-RateLimit-Remaining' in resp.headers:
             remaining = int(resp.headers.get('X-RateLimit-Remaining', 1))
             if remaining == 0:
@@ -344,6 +371,7 @@ class GitHubService:
         while True:
             try:
                 async with self.session.get(url, headers=self.base_headers, params=params) as resp:
+                    # 调用限流检查，如果触发了等待，则跳过本次循环重新请求
                     if await self._handle_rate_limit(resp):
                         continue
                     if resp.status != 200:
@@ -354,8 +382,12 @@ class GitHubService:
                     batch = await resp.json()
                     if not batch or not isinstance(batch, list):
                         break
+                    
+                    # [关键逻辑] 异步生成器
+                    # 每次 yield 一页数据（100条），调用方可以流式处理，避免一次性加载所有 commit 导致内存爆炸。
                     yield batch
-                    if len(batch) < 100: break
+                    
+                    if len(batch) < 100: break # 如果不满一页，说明是最后一页
                     params["page"] += 1
             except Exception as e:
                 logger.error(f"Fetch loop error for {repo}: {e}")
@@ -371,6 +403,8 @@ class InsightEngine:
     async def run(self, projects: List[str]):
         # 初始化数据库连接管理器
         with StorageManager(self.config.db_path) as storage:
+            # [关键逻辑] 连接复用
+            # 限制 TCP 连接池大小，防止并发请求过多导致本地端口耗尽或被对方防火墙封禁。
             conn = aiohttp.TCPConnector(limit=self.config.concurrency)
             async with aiohttp.ClientSession(connector=conn) as session:
                 self.gh_service = GitHubService(session, self.config.github_token, self.config)
@@ -380,6 +414,8 @@ class InsightEngine:
                 since_date = datetime.now(timezone.utc) - timedelta(days=self.config.lookback_days)
                 logger.info(f"开始分析任务 | 项目数: {len(projects)} | 周期: {self.config.lookback_days}天")
 
+                # [关键逻辑] 并发调度
+                # 为每个 repo 创建一个独立的 Task，使用 tqdm.gather 并发执行所有 Task。
                 tasks = [self._process_single_repo(p, since_date) for p in projects]
                 await tqdm.gather(*tasks, desc="Total Progress", unit="repo")
                 
@@ -391,12 +427,15 @@ class InsightEngine:
         commit_count = 0
         
         try:
+            # 流式处理 commit 批次
             async for batch in self.gh_service.fetch_commits(repo, since):
-                # 优化：批量去重，避免逐条查询 DB
+                # [关键逻辑] 增量更新检测
+                # 1. 提取当前批次的 SHA。
+                # 2. 调用 Storage 批量检查哪些 SHA 已存在。
+                # 3. 仅保留数据库中不存在的 SHA 进行后续处理（API请求等耗时操作）。
                 shas_in_batch = [item['sha'] for item in batch if item.get('sha')]
                 existing_shas = self.storage.filter_existing_shas(shas_in_batch)
                 
-                # 过滤出真正需要处理的 commit
                 to_process = [
                     item for item in batch 
                     if item.get('sha') not in existing_shas and item.get('author')
@@ -409,7 +448,8 @@ class InsightEngine:
                     author_login = item['author']['login']
                     sha = item['sha']
                     
-                    # API 调用
+                    # [关键逻辑] 数据补全
+                    # 串行执行：先获取用户 Location 字符串，再解析为经纬度/国家。
                     raw_loc = await self.gh_service.get_user_location(author_login)
                     geo_info = await self.geo_service.resolve(raw_loc)
                     
@@ -422,7 +462,8 @@ class InsightEngine:
                         timestamp=int(commit_ts), raw_location=raw_loc, **geo_info
                     ))
                 
-                # 批量写入
+                # [关键逻辑] 批量持久化
+                # 每处理完一页数据（或过滤后的一批），立即写入数据库，防止内存堆积。
                 if new_commits_buffer:
                     self.storage.save_commits(new_commits_buffer)
                     commit_count += len(new_commits_buffer)

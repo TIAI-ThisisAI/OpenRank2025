@@ -269,3 +269,143 @@ class GeminiClient:
         except (KeyError, json.JSONDecodeError, IndexError) as e:
             self.logger.error(f"Parsing failed: {e}")
             return [GeoRecord(loc, reasoning="Parse Error") for loc in original_batch]
+
+
+# ======================== 核心控制器 ========================
+
+class IOHandler:
+    # (省略文件读写逻辑，主要是根据扩展名判断 CSV/JSON/TXT)
+    @staticmethod
+    def read_input(config: AppConfig) -> List[str]:
+        if config.is_demo:
+            return ["New York", "London", "Shanghai", "Tokyo", "Berlin"] * 6
+        
+        path = Path(config.input_path)
+        if not path.exists(): raise FileNotFoundError(f"{path} not found")
+
+        try:
+            if path.suffix.lower() == '.csv':
+                with open(path, 'r', encoding='utf-8-sig') as f:
+                    reader = csv.DictReader(f)
+                    if not reader.fieldnames: return []
+                    col = config.target_column if config.target_column in reader.fieldnames else reader.fieldnames[0]
+                    return [row[col].strip() for row in reader if row.get(col)]
+            
+            elif path.suffix.lower() == '.json':
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    return [str(x) for x in (data if isinstance(data, list) else data.values())]
+            
+            else:
+                with open(path, 'r', encoding='utf-8') as f:
+                    return [line.strip() for line in f if line.strip()]
+        except Exception as e:
+            raise ValueError(f"Error reading file: {e}")
+
+    @staticmethod
+    def save_output(results: List[GeoRecord], path_str: str):
+        path = Path(path_str)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = [r.to_dict() for r in results]
+        
+        if path.suffix.lower() == '.json':
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        else:
+            if not data: return
+            with open(path, 'w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.DictWriter(f, fieldnames=data[0].keys())
+                writer.writeheader()
+                writer.writerows(data)
+
+class BatchProcessor:
+    def __init__(self, config: AppConfig):
+        self.config = config
+        self.logger = setup_logger(config.verbose)
+        self.stats = Statistics()
+        self.storage = StorageEngine(config.cache_db_path, self.logger)
+        self.client = GeminiClient(config, self.logger)
+        self.running = True
+        
+        # [控制逻辑] 优雅退出 (Graceful Shutdown)
+        # 捕捉 Ctrl+C 信号，设置标志位，让异步任务完成后再退出，防止数据损坏
+        if platform.system() != 'Windows':
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                signal.signal(sig, self._signal_handler)
+
+    def _signal_handler(self, sig, frame):
+        self.logger.warning("\nStopping...")
+        self.running = False
+
+    async def _worker(self, session: aiohttp.ClientSession, batch: List[str], sem: asyncio.Semaphore, pbar: tqdm):
+        """单个批次处理逻辑"""
+        # [并发控制] 使用信号量 (Semaphore) 限制同时运行的协程数量
+        # 避免瞬间发出数千个请求导致系统资源耗尽或触发硬性限流
+        async with sem:
+            if not self.running: return
+            records = await self.client.standardize_batch(session, batch)
+            
+            self.stats.api_processed += len(records)
+            self.storage.save_batch(records) # 实时保存，防止程序中途崩溃丢失进度
+            pbar.update(len(batch))
+
+    async def run(self):
+        try:
+            # 1. 准备数据
+            raw_inputs = IOHandler.read_input(self.config)
+            self.stats.total_inputs = len(raw_inputs)
+            # [优化逻辑] 内存去重：相同的地址只请求一次 API，节省 Token 费用
+            unique_inputs = list(dict.fromkeys(raw_inputs))
+            self.stats.unique_inputs = len(unique_inputs)
+
+            if not raw_inputs:
+                self.logger.warning("No input data found.")
+                return
+
+            # 2. 缓存过滤
+            # 查询 DB，分离出 "已缓存" 和 "待处理" 的数据
+            cached_map = self.storage.get_cached_records(unique_inputs)
+            self.stats.cached_hits = len(cached_map)
+            to_process = [x for x in unique_inputs if x not in cached_map]
+
+            self.logger.info(f"Total: {self.stats.total_inputs} | Unique: {self.stats.unique_inputs} | "
+                             f"Cached: {self.stats.cached_hits} | API Todo: {len(to_process)}")
+
+            # 3. 并发执行
+            if to_process:
+                sem = asyncio.Semaphore(self.config.concurrency)
+                async with aiohttp.ClientSession() as session:
+                    tasks = []
+                    # 将待处理数据切分为小批次 (Batching)
+                    batches = [to_process[i:i + self.config.batch_size] 
+                               for i in range(0, len(to_process), self.config.batch_size)]
+                    
+                    with tqdm(total=len(to_process), desc="Processing", unit="loc") as pbar:
+                        for batch in batches:
+                            if not self.running: break
+                            # 创建 Task 但不 await，实现并发调度
+                            tasks.append(asyncio.create_task(self._worker(session, batch, sem, pbar)))
+                        
+                        # [同步点] 等待所有并发任务完成
+                        if tasks:
+                            await asyncio.gather(*tasks)
+
+            # 4. 结果合并与导出
+            self.logger.info("Exporting results...")
+            # 重新获取完整缓存（包括刚刚 API 处理完写入 DB 的数据）
+            final_cache = self.storage.get_cached_records(unique_inputs)
+            # [数据还原] 将去重后的结果映射回原始输入的顺序和数量
+            final_results = [final_cache.get(loc, GeoRecord(loc, reasoning="Missing")) for loc in raw_inputs]
+            
+            IOHandler.save_output(final_results, self.config.output_path)
+            self._print_stats()
+
+        except Exception as e:
+            self.logger.error(f"Fatal Error: {e}", exc_info=True)
+        finally:
+            self.storage.close()
+
+    def _print_stats(self):
+        self.logger.info("-" * 40)
+        self.logger.info(f"Done in {self.stats.elapsed:.2f}s | Speed: {self.stats.speed:.1f}/s")
+        self.logger.info(f"Saved to: {self.config.output_path}")

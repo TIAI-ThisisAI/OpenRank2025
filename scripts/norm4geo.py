@@ -409,3 +409,42 @@ class BatchProcessor:
         self.logger.info("-" * 40)
         self.logger.info(f"Done in {self.stats.elapsed:.2f}s | Speed: {self.stats.speed:.1f}/s")
         self.logger.info(f"Saved to: {self.config.output_path}")
+
+# ======================== 入口 ========================
+
+def main():
+    if platform.system() == 'Windows':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+    parser = ArgumentParser(description="Gemini Geo Standardizer", formatter_class=RawTextHelpFormatter)
+    parser.add_argument("--input", "-i", help="Input file path")
+    parser.add_argument("--output", "-o", default="geo_output.csv", help="Output path")
+    parser.add_argument("--key", "-k", default=os.environ.get(ENV_API_KEY_NAME), help="API Key")
+    parser.add_argument("--model", default="gemini-2.5-flash-preview-09-2025")
+    parser.add_argument("--batch", "-b", type=int, default=30)
+    parser.add_argument("--concurrency", "-c", type=int, default=10)
+    parser.add_argument("--cache", default="geo_cache.db")
+    parser.add_argument("--column", default="location")
+    parser.add_argument("--demo", action="store_true")
+    parser.add_argument("--verbose", "-v", action="store_true")
+
+    args = parser.parse_args()
+
+    if not args.key:
+        print(f"Error: API Key needed via --key or env {ENV_API_KEY_NAME}")
+        sys.exit(1)
+
+    config = AppConfig(
+        input_path=args.input, output_path=args.output, api_key=args.key,
+        model_name=args.model, batch_size=args.batch, concurrency=args.concurrency,
+        max_retries=3, cache_db_path=args.cache, target_column=args.column,
+        is_demo=args.demo, verbose=args.verbose
+    )
+
+    try:
+        asyncio.run(BatchProcessor(config).run())
+    except KeyboardInterrupt:
+        pass
+
+if __name__ == "__main__":
+    main()

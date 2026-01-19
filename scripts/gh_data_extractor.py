@@ -237,3 +237,158 @@ class StorageManager:
         stats['total_commits'] = self.conn.execute("SELECT COUNT(*) FROM commits").fetchone()[0]
         stats['total_devs'] = self.conn.execute("SELECT COUNT(DISTINCT author_login) FROM commits").fetchone()[0]
         return stats
+
+# -----------------------------------------------------------------------------
+# 服务层 (Service Layer)
+# -----------------------------------------------------------------------------
+class GeoService:
+    def __init__(self, session: aiohttp.ClientSession, storage: StorageManager, config: AppConfig):
+        self.session = session
+        self.storage = storage
+        self.config = config
+        # [关键逻辑] 并发控制
+        # Nominatim API 有严格的使用策略，使用 Semaphore 限制并发数为 1。
+        self._rate_limiter = asyncio.Semaphore(1)
+        self._mem_cache = {} 
+
+    async def resolve(self, location_str: str) -> Dict[str, Any]:
+        """
+        [关键逻辑] 三级缓存策略
+        1. L1 内存缓存: 速度最快，进程级复用。
+        2. L2 数据库缓存 (geo_cache): 持久化存储，避免重启后重新请求 API。
+        3. L3 外部 API: 仅在前两层未命中时调用，且调用后会回写缓存。
+        """
+        if not location_str or not location_str.strip():
+            return self._empty_result()
+
+        # 1. 内存缓存
+        if location_str in self._mem_cache:
+            return self._mem_cache[location_str]
+
+        # 2. 数据库缓存
+        cached = self.storage.get_geo_cache(location_str)
+        if cached:
+            self._mem_cache[location_str] = cached
+            return cached
+
+        # 3. API 请求
+        result = await self._fetch_from_api(location_str)
+        
+        # 4. 更新缓存
+        self.storage.save_geo_cache(location_str, result)
+        self._mem_cache[location_str] = result
+        return result
+
+    def _empty_result(self):
+        return {"country_code": "UNKNOWN", "city": "", "lat": 0.0, "lon": 0.0}
+
+    @async_retry(retries=2, delay=2)
+    async def _fetch_from_api(self, query: str) -> Dict[str, Any]:
+        async with self._rate_limiter:
+            params = {"q": query, "format": "json", "limit": 1, "accept-language": "en"}
+            headers = {"User-Agent": self.config.USER_AGENT}
+            
+            async with self.session.get(self.config.NOMINATIM_API, params=params, headers=headers) as resp:
+                if resp.status != 200:
+                    return self._empty_result()
+                
+                # [关键逻辑] 强制限流
+                # 即使有 Semaphore，仍强制 sleep 1.1秒，严格遵守 Nominatim 1秒/次 的协议要求。
+                await asyncio.sleep(1.1) 
+                data = await resp.json()
+
+                if data and isinstance(data, list) and len(data) > 0:
+                    item = data[0]
+                    # 更健壮的国家代码提取
+                    display_name = item.get("display_name", "")
+                    country_code = "UNKNOWN"
+                    if display_name:
+                        parts = [p.strip() for p in display_name.split(",")]
+                        if parts:
+                            # 尝试取最后一段作为国家
+                            country_code = parts[-1].upper()[:3] 
+                    
+                    return {
+                        "country_code": country_code,
+                        "city": item.get("type", "unknown"),
+                        "lat": float(item.get("lat", 0)),
+                        "lon": float(item.get("lon", 0))
+                    }
+                return self._empty_result()
+
+class GitHubService:
+    def __init__(self, session: aiohttp.ClientSession, token: str, config: AppConfig):
+        self.session = session
+        self.config = config
+        self.base_headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": config.USER_AGENT
+        }
+        self._user_info_cache: Dict[str, str] = {}
+
+    async def _handle_rate_limit(self, resp: aiohttp.ClientResponse):
+        """
+        [关键逻辑] API 速率限制处理
+        检测 GitHub 返回的 403 及 RateLimit header。
+        如果耗尽，计算重置时间并挂起当前协程，而不是直接抛出错误。
+        """
+        if resp.status == 403 and 'X-RateLimit-Remaining' in resp.headers:
+            remaining = int(resp.headers.get('X-RateLimit-Remaining', 1))
+            if remaining == 0:
+                reset_ts = int(resp.headers.get('X-RateLimit-Reset', 0))
+                wait_time = max(reset_ts - time.time(), 0) + 1
+                logger.warning(f"Rate Limit 触发，等待 {wait_time:.0f}s")
+                await asyncio.sleep(wait_time)
+                return True
+        return False
+
+    @async_retry()
+    async def get_user_location(self, username: str) -> str:
+        if not username: return ""
+        if username in self._user_info_cache:
+            return self._user_info_cache[username]
+
+        url = f"{self.config.GITHUB_API_BASE}/users/{username}"
+        async with self.session.get(url, headers=self.base_headers) as resp:
+            if await self._handle_rate_limit(resp):
+                return await self.get_user_location(username)
+            
+            location = ""
+            if resp.status == 200:
+                data = await resp.json()
+                location = data.get("location") or ""
+            elif resp.status != 404:
+                logger.debug(f"用户 {username} 获取失败: {resp.status}")
+
+            self._user_info_cache[username] = location
+            return location
+
+    async def fetch_commits(self, repo: str, since: datetime) -> AsyncGenerator[List[Dict], None]:
+        url = f"{self.config.GITHUB_API_BASE}/repos/{repo}/commits"
+        params = {"since": since.isoformat(), "per_page": 100, "page": 1}
+        
+        while True:
+            try:
+                async with self.session.get(url, headers=self.base_headers, params=params) as resp:
+                    # 调用限流检查，如果触发了等待，则跳过本次循环重新请求
+                    if await self._handle_rate_limit(resp):
+                        continue
+                    if resp.status != 200:
+                        if resp.status == 404:
+                            logger.error(f"仓库不可见: {repo}")
+                        break
+                        
+                    batch = await resp.json()
+                    if not batch or not isinstance(batch, list):
+                        break
+                    
+                    # [关键逻辑] 异步生成器
+                    # 每次 yield 一页数据（100条），调用方可以流式处理，避免一次性加载所有 commit 导致内存爆炸。
+                    yield batch
+                    
+                    if len(batch) < 100: break # 如果不满一页，说明是最后一页
+                    params["page"] += 1
+            except Exception as e:
+                logger.error(f"Fetch loop error for {repo}: {e}")
+                break

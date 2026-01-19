@@ -66,3 +66,43 @@ def setup_logging(level_name: str) -> logging.Logger:
     return logger
 
 logger = setup_logging("INFO")
+
+# -----------------------------------------------------------------------------
+# 工具函数 (Utilities)
+# -----------------------------------------------------------------------------
+def async_retry(retries: int = 3, delay: int = 1, backoff: int = 2):
+    """
+    [关键逻辑] 异步重试装饰器
+    用于网络请求不稳定的情况，实现指数退避策略（失败等待时间 1s -> 2s -> 4s）。
+    """
+    def decorator(func: Callable):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            current_delay = delay
+            for i in range(retries + 1):
+                try:
+                    return await func(*args, **kwargs)
+                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                    if i == retries:
+                        logger.error(f"函数 {func.__name__} 重试耗尽: {e}")
+                        raise
+                    # 仅在非最后一次尝试时等待
+                    await asyncio.sleep(current_delay)
+                    current_delay *= backoff
+        return wrapper
+    return decorator
+
+# -----------------------------------------------------------------------------
+# 数据模型 (Data Models)
+# -----------------------------------------------------------------------------
+@dataclass
+class CommitRecord:
+    sha: str
+    repo_name: str
+    author_login: str
+    timestamp: int
+    raw_location: Optional[str] = None
+    country_code: str = "UNKNOWN"
+    city: str = ""
+    lat: float = 0.0
+    lon: float = 0.0

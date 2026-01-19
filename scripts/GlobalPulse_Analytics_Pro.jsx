@@ -187,3 +187,72 @@ const useDataProcessor = (project, range, filter) => {
     };
   }, [rawData, filter]);
 };
+
+// 热力图组件：逻辑主要在于根据 commits 数量返回不同的 Tailwind 颜色类名
+const ActivityHeatmap = ({ data }) => {
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  
+  // 颜色映射逻辑：数值越大，颜色越亮
+  const getIntensity = (c) => {
+    if (c === 0) return 'bg-slate-800/50';
+    if (c < 3) return 'bg-cyan-900/60';
+    if (c < 6) return 'bg-cyan-700/70';
+    if (c < 12) return 'bg-cyan-600/80';
+    if (c < 20) return 'bg-cyan-500/90';
+    return 'bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.6)]';
+  };
+
+  return (
+    <div className="flex flex-col h-full w-full select-none font-mono">
+      <div className="flex justify-between text-[10px] text-slate-500 mb-2 px-8">
+        {[0, 6, 12, 18, 23].map(h => <span key={h}>{h}H</span>)}
+      </div>
+      <div className="flex-1 flex flex-col justify-between">
+        {days.map((day, dIdx) => (
+          <div key={day} className="flex items-center gap-2 group h-full">
+            <span className="w-8 text-[10px] text-slate-500 text-right group-hover:text-cyan-400 transition-colors">{day}</span>
+            <div 
+                className="flex-1 grid gap-1 h-full" 
+                style={{ gridTemplateColumns: 'repeat(24, minmax(0, 1fr))' }}
+            >
+              {Array.from({ length: 24 }).map((_, hIdx) => (
+                <div 
+                  key={hIdx} 
+                  className={`rounded-sm transition-all duration-300 hover:scale-125 hover:z-10 cursor-crosshair h-full ${getIntensity(data[dIdx]?.[hIdx] || 0)}`} 
+                  title={`${day} ${hIdx}:00 - ${data[dIdx]?.[hIdx]} commits`}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// 指标卡片展示组件（纯展示）
+const MetricCard = ({ title, value, icon: Icon, unit, subValue, change, color }) => (
+  <div className="relative overflow-hidden bg-slate-900/60 backdrop-blur-md p-5 rounded-2xl border border-slate-800 group hover:border-slate-700 transition-all duration-300 hover:shadow-lg hover:shadow-cyan-900/10 h-full">
+    <div className={`absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity ${color}`}>
+      <Icon size={64} />
+    </div>
+    <div className="flex flex-col justify-between h-full relative z-10">
+      <div className="flex items-center gap-2 text-slate-400 mb-1">
+        <Icon size={16} />
+        <span className="text-xs font-bold tracking-wider uppercase">{title}</span>
+      </div>
+      <div className="flex items-baseline gap-1">
+        <span className="text-3xl font-black text-slate-100 tracking-tight">{value}</span>
+        {unit && <span className="text-sm text-slate-500 font-medium">{unit}</span>}
+      </div>
+      {subValue && (
+        <div className="mt-2 flex items-center gap-2 text-xs">
+          <span className={`px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 ${change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {change > 0 ? '+' : ''}{change}%
+          </span>
+          <span className="text-slate-500">{subValue}</span>
+        </div>
+      )}
+    </div>
+  </div>
+);

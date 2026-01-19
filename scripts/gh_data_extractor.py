@@ -569,3 +569,43 @@ class ReportGenerator:
         }});
     </script>
 </body></html>"""
+
+# -----------------------------------------------------------------------------
+# Main
+# -----------------------------------------------------------------------------
+def main():
+    parser = argparse.ArgumentParser(description="GitHub Insight Pro")
+    parser.add_argument("-p", "--projects", nargs='+', help="GitHub repo paths")
+    parser.add_argument("-f", "--config", help="YAML config file")
+    parser.add_argument("-d", "--days", type=int, default=30)
+    parser.add_argument("-o", "--output", default="reports/insight_report.html")
+    args = parser.parse_args()
+    
+    token = os.environ.get("GITHUB_TOKEN")
+    if not token:
+        logger.critical("Missing GITHUB_TOKEN environment variable.")
+        sys.exit(1)
+
+    projects = set(args.projects or [])
+    if args.config:
+        try:
+            with open(args.config, 'r') as f:
+                projects.update(yaml.safe_load(f).get('projects', []))
+        except Exception as e:
+            logger.error(f"Config load error: {e}")
+
+    if not projects:
+        logger.error("No projects specified. Use -p or -f.")
+        sys.exit(1)
+
+    config = AppConfig(github_token=token, report_path=args.output, lookback_days=args.days)
+    
+    try:
+        asyncio.run(InsightEngine(config).run(list(projects)))
+    except KeyboardInterrupt:
+        logger.info("Stopped by user.")
+    except Exception as e:
+        logger.exception(f"Fatal error: {e}")
+
+if __name__ == "__main__":
+    main()

@@ -336,3 +336,248 @@ export default function App() {
       </div>
     );
   }
+
+return (
+    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-cyan-500/30">
+      {/* 顶部导航栏 */}
+      <nav className="h-16 border-b border-slate-800 bg-slate-950/80 backdrop-blur-xl sticky top-0 z-50 px-6 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="bg-cyan-500 w-8 h-8 rounded flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.5)]">
+            <LayoutDashboard size={18} className="text-white" />
+          </div>
+          <h1 className="text-lg font-bold tracking-tight text-white hidden sm:block">
+            Global<span className="text-cyan-400">Pulse</span> <span className="text-slate-500 font-light">| Analytics</span>
+          </h1>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="hidden md:flex bg-slate-900 p-1 rounded-lg border border-slate-800">
+            {TIME_RANGES.map(r => (
+              <button 
+                key={r.value} 
+                onClick={() => setRange(r.value)} 
+                className={`px-4 py-1.5 text-xs font-medium rounded-md transition-all ${range === r.value ? 'bg-slate-800 text-cyan-400 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+          <div className="h-6 w-px bg-slate-800 mx-2 hidden md:block"></div>
+          <select 
+            value={project} 
+            onChange={e => setProject(e.target.value)} 
+            className="bg-slate-900 border border-slate-800 text-sm py-1.5 px-3 rounded-lg outline-none focus:border-cyan-500/50 text-slate-300 font-medium"
+          >
+            <option value="Project-A">React Native</option>
+            <option value="Project-B">TensorFlow</option>
+            <option value="Project-C">Kubernetes</option>
+          </select>
+          <button onClick={exportJson} className="p-2 hover:bg-slate-800 text-slate-400 hover:text-cyan-400 rounded-lg transition-colors">
+            <Download size={18} />
+          </button>
+        </div>
+      </nav>
+
+      {/* 主仪表盘布局 */}
+      <main className="p-4 md:p-6 max-w-[2400px] mx-auto space-y-4">
+        
+        {/* 关键指标概览卡片 */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <MetricCard title="Global Score" value={data.globalScore.toFixed(2)} unit="/ 1.0" icon={Activity} subValue="Health Index" change={12} color="text-cyan-400" />
+          <MetricCard title="Contributors" value={data.totalContributors} icon={Users} subValue="Unique Devs" change={5} color="text-violet-400" />
+          <MetricCard title="Timezone Coverage" value={data.hriCoverage} unit="%" icon={Globe} subValue="24H Active" change={-2} color="text-emerald-400" />
+          <MetricCard title="Diversity Score" value={data.geoData.diversityScore.toFixed(2)} icon={MapIcon} subValue={`${data.geoData.countryData.length} Regions`} change={8} color="text-rose-400" />
+        </div>
+
+        {/* 复杂图表网格布局 */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 auto-rows-[minmax(300px,auto)]">
+          
+          {/* 1. 面积图：展示趋势 */}
+          <ChartCard
+            title="Contribution Velocity & Trends"
+            icon={TrendingUp}
+            className="lg:col-span-8 lg:row-span-2 h-[400px]"
+          >
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={200}>
+              <AreaChart data={data.history} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#06b6d4" stopOpacity={0}/>
+                  </linearGradient>
+                  <linearGradient id="colorCommits" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid {...CHART_THEME.grid} vertical={false} />
+                <XAxis dataKey="label" {...CHART_THEME.axis} dy={10} />
+                <YAxis yAxisId="left" {...CHART_THEME.axis} domain={[0, 1]} />
+                <YAxis yAxisId="right" orientation="right" {...CHART_THEME.axis} />
+                <Tooltip {...CHART_THEME.tooltip} />
+                <Area yAxisId="left" type="monotone" dataKey="score" stroke="#06b6d4" strokeWidth={3} fillOpacity={1} fill="url(#colorScore)" name="Health Score" />
+                <Area yAxisId="right" type="monotone" dataKey="commits" stroke="#8b5cf6" strokeWidth={3} fillOpacity={1} fill="url(#colorCommits)" name="Commits" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </ChartCard>
+
+          {/* 2. 贡献者列表：支持筛选交互 */}
+          <ChartCard 
+            title="Top Contributors" 
+            icon={Award} 
+            className="lg:col-span-4 lg:row-span-2 overflow-hidden h-[400px] lg:h-auto"
+            action={filter && (
+              <button
+                onClick={() => setFilter(null)}
+                className="text-[10px] bg-rose-500/20 text-rose-400 px-2 py-1 rounded border border-rose-500/30 hover:bg-rose-500/30 flex items-center gap-1"
+              >
+                <XCircle size={10}/>Clear {filter}
+              </button>
+            )}
+          >
+            <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar -mr-2">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="sticky top-0 bg-slate-900/95 backdrop-blur z-10 text-slate-500 font-medium">
+                  <tr>
+                    <th className="py-3 pl-2">Rank</th>
+                    <th className="py-3">Developer</th>
+                    <th className="py-3 text-right">Region</th>
+                    <th className="py-3 text-right pr-2">Commits</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/50">
+                  {data.filteredContributors.map((u, i) => (
+                    <tr key={u.contributor_id} className="group hover:bg-slate-800/40 transition-colors">
+                      <td className="py-2.5 pl-2 font-mono text-slate-600 group-hover:text-cyan-400 transition-colors">
+                        {String(i+1).padStart(2,'0')}
+                      </td>
+                      <td className="py-2.5">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold ${i < 3 ? 'bg-gradient-to-br from-yellow-400 to-orange-500 text-black' : 'bg-slate-800 text-slate-400'}`}>
+                            {u.contributor_name[0]}
+                          </div>
+                          <span className="text-slate-300 font-medium">{u.contributor_name}</span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 text-right">
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-mono border ${u.location_iso3 === filter ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300' : 'bg-slate-800 border-slate-700 text-slate-500'}`}>
+                          {u.location_iso3}
+                        </span>
+                      </td>
+                      <td className="py-2.5 text-right pr-2 font-mono text-slate-200">{u.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </ChartCard>
+
+          {/* 3. 饼图：地理分布交互入口 */}
+          <ChartCard
+            title="Geo Distribution"
+            icon={Globe}
+            className="lg:col-span-3 h-[280px]"
+          >
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={200}>
+              <PieChart>
+                <Pie 
+                  data={data.geoData.pieData} 
+                  innerRadius="60%" 
+                  outerRadius="80%" 
+                  paddingAngle={5} 
+                  dataKey="value"
+                  stroke="none"
+                  // 点击饼图切片设置筛选器
+                  onClick={d => d.name !== 'Other' && setFilter(d.name === filter ? null : d.name)}
+                  className="cursor-pointer outline-none"
+                >
+                  {data.geoData.pieData.map((entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={COLORS[index % COLORS.length]}
+                      opacity={filter && filter !== entry.name ? 0.3 : 1}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip {...CHART_THEME.tooltip} />
+                <Legend verticalAlign="bottom" iconSize={8} wrapperStyle={{fontSize:'10px', paddingTop:'10px'}} />
+              </PieChart>
+            </ResponsiveContainer>
+          </ChartCard>
+
+          {/* 4. 雷达图：多维评分 */}
+          <ChartCard
+            title="Health Radar"
+            icon={Target}
+            className="lg:col-span-3 h-[280px]"
+          >
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={200}>
+              <RadarChart cx="50%" cy="50%" outerRadius="70%" data={data.radarData}>
+                <PolarGrid stroke="#334155" />
+                <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                <PolarRadiusAxis angle={30} domain={[0, 150]} tick={false} axisLine={false} />
+                <Radar name="Current" dataKey="A" stroke="#06b6d4" strokeWidth={2} fill="#06b6d4" fillOpacity={0.4} />
+                <Tooltip {...CHART_THEME.tooltip} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+
+          {/* 5. 热力图：周活动规律 */}
+          <ChartCard
+            title="Weekly Rhythm"
+            icon={Calendar}
+            className="lg:col-span-6 h-[280px]"
+          >
+            <ActivityHeatmap data={data.heatmapData} />
+          </ChartCard>
+
+          {/* 6. AI 智能分析模块 */}
+          <div className="lg:col-span-12 relative group">
+            <div className="absolute inset-0 bg-gradient-to-r from-cyan-600/20 to-violet-600/20 rounded-2xl blur-xl opacity-50 group-hover:opacity-100 transition-opacity"></div>
+            <div className="relative bg-slate-900/80 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6 flex flex-col md:flex-row gap-6 items-start">
+              <div className="md:w-1/4 space-y-4">
+                <div className="flex items-center gap-2 text-cyan-400">
+                  <Sparkles size={20} className="animate-pulse" />
+                  <h3 className="text-lg font-bold text-white">AI Diagnostics</h3>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Generate instant insights based on current metrics using Gemini 2.5 Flash model.
+                </p>
+                <button 
+                  onClick={generateInsight} 
+                  disabled={insight.loading}
+                  className="w-full py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-sm font-bold rounded-lg shadow-lg shadow-cyan-900/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {insight.loading ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white animate-spin rounded-full"/>
+                  ) : (
+                    <Zap size={16} fill="currentColor" />
+                  )}
+                  Generate Report
+                </button>
+              </div>
+              
+              <div className="md:w-3/4 w-full bg-slate-950/50 rounded-xl border border-slate-800 p-5 min-h-[120px] flex items-center">
+                {insight.text ? (
+                  <div className="prose prose-invert prose-sm max-w-none">
+                    <p className="text-slate-300 leading-relaxed whitespace-pre-wrap">{insight.text}</p>
+                  </div>
+                ) : (
+                  <div className="w-full flex flex-col items-center justify-center text-slate-600 gap-2">
+                    <Activity size={24} className="opacity-20" />
+                    <p className="text-sm">Ready to analyze {data.totalCommits} data points...</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </main>
+      
+      <footer className="py-6 text-center text-slate-600 text-xs font-mono">
+        GLOBAL PULSE ANALYTICS © 2025 • POWERED BY REACT & RECHARTS
+      </footer>
+    </div>
+  );
+}

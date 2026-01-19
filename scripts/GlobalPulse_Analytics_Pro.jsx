@@ -295,3 +295,44 @@ export default function App() {
     const t = setTimeout(() => setLoading(false), 600);
     return () => clearTimeout(t);
   }, [project, range]);
+
+/**
+   * AI 洞察生成逻辑
+   * 构建 Prompt，将当前的统计指标（分数、覆盖率等）发送给 Google Gemini API，
+   * 获取自然语言分析报告。
+   */
+  const generateInsight = async () => {
+    if (!apiKey) return setInsight({ text: "请在代码中配置 API Key 以启用 AI 分析功能。", loading: false });
+    setInsight({ text: "", loading: true });
+    try {
+      const res = await fetch(`${API_URL}?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: `作为数据分析师，简要分析开源项目 ${project}：综合得分${data.globalScore.toFixed(2)}, 时区覆盖${data.hriCoverage}%, 活跃地区${data.geoData.countryData.length}个。给出3个关键洞察。` }] }],
+        })
+      });
+      const resJson = await res.json();
+      setInsight({ text: resJson.candidates?.[0]?.content?.parts?.[0]?.text || "分析服务暂时不可用", loading: false });
+    } catch (e) {
+      setInsight({ text: "网络连接异常", loading: false });
+    }
+  };
+
+  // 数据导出逻辑：将原始数据转为 JSON Blob 并触发下载
+  const exportJson = () => {
+    const blob = new Blob([JSON.stringify(data.rawData, null, 2)], { type: 'application/json' });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `${project}_${range}.json` });
+    a.click();
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
+        <div className="w-12 h-12 border-4 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin"></div>
+        <p className="text-cyan-500 font-mono text-sm tracking-widest animate-pulse">
+          SYSTEM INITIALIZING...
+        </p>
+      </div>
+    );
+  }

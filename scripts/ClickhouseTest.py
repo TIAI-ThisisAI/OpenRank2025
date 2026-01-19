@@ -119,3 +119,12 @@ def compute_yearly_growth_rate(company_ranks: list, years: list) -> list:
 
     return growth_rates
 
+def analyze_yearly_growth(data: dict, years: list) -> dict:
+    """
+    对多个公司计算每年排名变化率
+    """
+    return {
+        company: compute_yearly_growth_rate(ranks, years)
+        for company, ranks in data.items()
+    }
+

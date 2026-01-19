@@ -488,3 +488,84 @@ class InsightEngine:
             webbrowser.open(f"file://{abs_path}")
         except Exception:
             logger.info(f"报告已保存至: {abs_path}")
+
+# -----------------------------------------------------------------------------
+# 报告生成器 (View Layer)
+# -----------------------------------------------------------------------------
+class ReportGenerator:
+    def __init__(self, output_path: str):
+        self.output_path = Path(output_path)
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def render(self, stats: Dict[str, Any]):
+        html_content = self._template().format(
+            gen_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
+            total_commits=stats.get('total_commits', 0),
+            total_devs=stats.get('total_devs', 0),
+            countries_labels=json.dumps(list(stats['countries'].keys())),
+            countries_data=json.dumps(list(stats['countries'].values())),
+            hourly_labels=json.dumps(list(stats['hourly'].keys())),
+            hourly_data=json.dumps(list(stats['hourly'].values())),
+            top_devs_rows=self._rows(stats['top_devs'])
+        )
+        with open(self.output_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+
+    def _rows(self, dev_dict: Dict[str, int]) -> str:
+        return "".join([
+            f"<tr><td>{i}</td><td><a href='https://github.com/{u}' target='_blank'>{u}</a></td><td>{c}</td></tr>" 
+            for i, (u, c) in enumerate(dev_dict.items(), 1)
+        ])
+
+    def _template(self) -> str:
+        return """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Insight Report</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {{ --primary: #2563eb; --bg: #f8fafc; --card: #fff; --text: #1e293b; }}
+        body {{ font-family: sans-serif; background: var(--bg); color: var(--text); padding: 20px; }}
+        .container {{ max-width: 1200px; margin: 0 auto; }}
+        .header {{ text-align: center; margin-bottom: 40px; padding: 20px; background: var(--card); border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }}
+        .stats-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }}
+        .stat-card {{ background: var(--card); padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }}
+        .stat-val {{ font-size: 2em; font-weight: bold; color: var(--primary); }}
+        .charts-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; margin-bottom: 30px; }}
+        .chart-box {{ background: var(--card); padding: 20px; border-radius: 12px; height: 300px; }}
+        table {{ width: 100%; border-collapse: collapse; background: var(--card); }}
+        th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }}
+        a {{ color: var(--primary); text-decoration: none; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header"><h1>GitHub 项目地理分布报告</h1><p>{gen_time}</p></div>
+        <div class="stats-grid">
+            <div class="stat-card"><div class="stat-val">{total_commits}</div><div>Commits</div></div>
+            <div class="stat-card"><div class="stat-val">{total_devs}</div><div>Contributors</div></div>
+        </div>
+        <div class="charts-grid">
+            <div class="chart-box"><canvas id="countryChart"></canvas></div>
+            <div class="chart-box"><canvas id="hourChart"></canvas></div>
+        </div>
+        <div class="chart-box" style="height:auto; overflow:hidden">
+            <h3>Top Contributors</h3>
+            <table><thead><tr><th>#</th><th>User</th><th>Commits</th></tr></thead><tbody>{top_devs_rows}</tbody></table>
+        </div>
+    </div>
+    <script>
+        const opts = {{ responsive: true, maintainAspectRatio: false }};
+        new Chart(document.getElementById('countryChart'), {{
+            type: 'bar',
+            data: {{ labels: {countries_labels}, datasets: [{{ label: 'Commits', data: {countries_data}, backgroundColor: '#3b82f6' }}] }},
+            options: opts
+        }});
+        new Chart(document.getElementById('hourChart'), {{
+            type: 'line',
+            data: {{ labels: {hourly_labels}, datasets: [{{ label: 'Activity', data: {hourly_data}, borderColor: '#ef4444', fill: true }}] }},
+            options: opts
+        }});
+    </script>
+</body></html>"""

@@ -256,3 +256,42 @@ const MetricCard = ({ title, value, icon: Icon, unit, subValue, change, color })
     </div>
   </div>
 );
+
+// 图表容器组件
+// 关键逻辑说明：ResponsiveContainer 需要父容器有明确的高度。
+// 我们使用 flex 布局和 relative 定位来确保图表能正确适应 grid 布局的变化。
+const ChartCard = ({ title, icon: Icon, children, className = "", action }) => (
+  <div className={`bg-slate-900/60 backdrop-blur-md rounded-2xl border border-slate-800 p-5 flex flex-col hover:border-slate-700 transition-colors duration-300 ${className}`}>
+    <div className="flex items-center justify-between mb-4 z-10 shrink-0">
+      <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+        <div className="p-1.5 bg-slate-800 rounded-lg text-cyan-400"><Icon size={16} /></div>
+        {title}
+      </h3>
+      {action}
+    </div>
+    <div className="flex-1 w-full relative min-h-[200px]">
+      <div className="absolute inset-0 flex flex-col">
+        {children}
+      </div>
+    </div>
+  </div>
+);
+
+export default function App() {
+  const [project, setProject] = useState('Project-A');
+  const [range, setRange] = useState('3M');
+  const [filter, setFilter] = useState(null); // 用于饼图点击后的交互筛选
+  const [loading, setLoading] = useState(true);
+  const [insight, setInsight] = useState({ text: "", loading: false });
+
+  // 调用 Hook 处理数据
+  const data = useDataProcessor(project, range, filter);
+
+  // 模拟切换项目时的加载状态
+  useEffect(() => {
+    setLoading(true); 
+    setFilter(null); 
+    setInsight({ text: "", loading: false });
+    const t = setTimeout(() => setLoading(false), 600);
+    return () => clearTimeout(t);
+  }, [project, range]);

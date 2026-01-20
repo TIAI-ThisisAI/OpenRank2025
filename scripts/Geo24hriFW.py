@@ -328,3 +328,62 @@ class CollectionEngine:
             await self.db.save_batch(buffer)
             self.stats["saved"] += len(buffer)
 
+# ==============================================================================
+# 模块 5: [Main] 程序入口与编排
+# 功能: 组装各模块，运行主任务循环
+# ==============================================================================
+
+async def main(repos: List[str]):
+    # 1. 配置检查
+    if not AppConfig.GITHUB_TOKENS:
+        logger.warning("无 Token 模式，速率受限。建议设置 GITHUB_TOKENS 环境变量。")
+
+    # 2. 资源初始化 (Infrastructure)
+    db = AsyncDatabase(AppConfig.DB_PATH)
+    await db.connect()
+    
+    token_pool = TokenPool(AppConfig.GITHUB_TOKENS)
+    engine = CollectionEngine(token_pool, db)
+    
+    # 3. 任务参数准备
+    until_ts = datetime.now(timezone.utc)
+    since_ts = until_ts - timedelta(days=30)
+    
+    pbar = tqdm(desc="Fetching", unit=" commits")
+    
+    # 4. 启动异步任务
+    # 消费者：后台运行
+    consumer_task = asyncio.create_task(engine.consumer())
+    
+    # 生产者：并发限制
+    sem = asyncio.Semaphore(AppConfig.CONCURRENT_REPOS)
+    
+    async def run_repo(r):
+        async with sem:
+            await engine.producer(r, since_ts.isoformat(), until_ts.isoformat(), pbar)
+
+    # 等待所有生产者完成
+    await asyncio.gather(*[run_repo(r) for r in repos])
+    
+    # 5. 优雅关闭
+    await engine.data_queue.put(None) # 发送哨兵
+    await consumer_task # 等待消费者退出
+    
+    pbar.close()
+    await db.close()
+    logger.info(f"任务完成，共入库 {engine.stats['saved']} 条记录")
+
+if __name__ == "__main__":
+    # 目标仓库列表
+    target_repos = [
+        "python/cpython", "torvalds/linux", "microsoft/vscode",
+        "tensorflow/tensorflow", "django/django"
+    ]
+    
+    try:
+        # Windows 平台 asyncio 兼容性补丁
+        if sys.platform == 'win32':
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        asyncio.run(main(target_repos))
+    except KeyboardInterrupt:
+        print("\n用户终止")

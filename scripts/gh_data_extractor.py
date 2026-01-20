@@ -101,3 +101,24 @@ def async_retry(retries: int = 3, delay: int = 1, backoff: int = 2):
                     current_delay *= backoff
         return wrapper
     return decorator
+
+# =============================================================================
+# 模块 2: 数据模型 (Data Models)
+# 职责: 定义核心业务对象的结构，保证数据流转的一致性
+# =============================================================================
+
+@dataclass
+class CommitRecord:
+    """
+    [数据模块] 单条 Commit 记录的标准结构
+    包含从 GitHub 获取的元数据以及后期解析出的地理信息。
+    """
+    sha: str
+    repo_name: str
+    author_login: str
+    timestamp: int
+    raw_location: Optional[str] = None
+    country_code: str = "UNKNOWN"
+    city: str = ""
+    lat: float = 0.0
+    lon: float = 0.0

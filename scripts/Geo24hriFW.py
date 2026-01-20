@@ -89,3 +89,34 @@ class AppConfig:
       }
     }
     """ % PAGE_SIZE
+
+# ==============================================================================
+# 模块 2: [Models] 数据模型层
+# 功能: 定义核心数据结构，解耦业务逻辑与数据存储格式
+# ==============================================================================
+
+@dataclass(frozen=True)
+class CommitRecord:
+    """
+    Commit 业务实体
+    使用 frozen=True 确保数据不可变，线程安全
+    """
+    repo_name: str
+    commit_sha: str
+    timestamp_unix: int
+    author_login: str
+    author_name: str
+    author_email: str
+    message: str
+
+    def to_db_row(self) -> tuple:
+        """转换逻辑：将对象序列化为数据库行格式"""
+        return (
+            self.commit_sha,
+            self.repo_name,
+            self.author_login,
+            self.timestamp_unix,
+            self.message,
+            # 保留原始数据的 JSON 备份，便于后续扩展字段
+            json.dumps(asdict(self))
+        )

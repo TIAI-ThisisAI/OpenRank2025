@@ -36,3 +36,56 @@ try:
 except ImportError:
     print("错误: 缺少必要依赖。请执行: pip install aiohttp aiosqlite tqdm")
     sys.exit(1)
+
+# ==============================================================================
+# 模块 1: [Config] 配置层
+# 功能: 集中管理所有硬编码参数、SQL模板和环境变量
+# ==============================================================================
+
+class AppConfig:
+    """应用程序配置容器"""
+    
+    # 基础配置
+    API_URL = "https://api.github.com/graphql"
+    DB_PATH = "gh_data_optimized.db"
+    
+    # 身份认证：支持从环境变量读取逗号分隔的多个 Token
+    GITHUB_TOKENS = [t.strip() for t in os.getenv("GITHUB_TOKENS", "").split(",") if t.strip()]
+    
+    # 性能参数
+    CONCURRENT_REPOS = 5    # 并发采集仓库数 (Semaphore)
+    PAGE_SIZE = 100         # 单次请求获取的 Commit 数
+    MAX_RETRIES = 5         # API 请求重试次数
+    WRITE_BATCH_SIZE = 50   # 数据库批量写入阈值
+    
+    # 网络超时 (总计60秒, 连接10秒)
+    TIMEOUT = aiohttp.ClientTimeout(total=60, connect=10)
+
+    # GraphQL 查询模板 (优化载荷，仅查询必要字段)
+    GRAPHQL_TEMPLATE = """
+    query($owner: String!, $name: String!, $since: GitTimestamp!, $until: GitTimestamp!, $cursor: String) {
+      repository(owner: $owner, name: $name) {
+        defaultBranchRef {
+          target {
+            ... on Commit {
+              history(since: $since, until: $until, first: %d, after: $cursor) {
+                pageInfo { hasNextPage endCursor }
+                edges {
+                  node {
+                    oid
+                    messageHeadline
+                    committedDate
+                    author {
+                      name
+                      email
+                      user { login }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    """ % PAGE_SIZE

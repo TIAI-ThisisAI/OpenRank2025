@@ -196,3 +196,92 @@ const useDataProcessor = (project, range, filter) => {
     };
   }, [rawData, filter]);
 };
+
+/* =============================================================================
+   MODULE 4: UI 组件库 (UI Component Library)
+   作用：通用的展示组件，负责具体的视觉渲染。
+   包括：指标卡片、图表容器、热力图组件。
+   ============================================================================= */
+
+// 4.1 通用指标卡片
+const MetricCard = ({ title, value, icon: Icon, unit, subValue, change, color }) => (
+  <div className="relative overflow-hidden bg-slate-900/60 backdrop-blur-md p-5 rounded-2xl border border-slate-800 group hover:border-slate-700 transition-all duration-300 hover:shadow-lg hover:shadow-cyan-900/10 h-full">
+    <div className={`absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity ${color}`}>
+      <Icon size={64} />
+    </div>
+    <div className="flex flex-col justify-between h-full relative z-10">
+      <div className="flex items-center gap-2 text-slate-400 mb-1">
+        <Icon size={16} />
+        <span className="text-xs font-bold tracking-wider uppercase">{title}</span>
+      </div>
+      <div className="flex items-baseline gap-1">
+        <span className="text-3xl font-black text-slate-100 tracking-tight">{value}</span>
+        {unit && <span className="text-sm text-slate-500 font-medium">{unit}</span>}
+      </div>
+      {subValue && (
+        <div className="mt-2 flex items-center gap-2 text-xs">
+          <span className={`px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 ${change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {change > 0 ? '+' : ''}{change}%
+          </span>
+          <span className="text-slate-500">{subValue}</span>
+        </div>
+      )}
+    </div>
+  </div>
+);
+
+// 4.2 图表包装容器 (处理 Recharts 响应式布局)
+const ChartCard = ({ title, icon: Icon, children, className = "", action }) => (
+  <div className={`bg-slate-900/60 backdrop-blur-md rounded-2xl border border-slate-800 p-5 flex flex-col hover:border-slate-700 transition-colors duration-300 ${className}`}>
+    <div className="flex items-center justify-between mb-4 z-10 shrink-0">
+      <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+        <div className="p-1.5 bg-slate-800 rounded-lg text-cyan-400"><Icon size={16} /></div>
+        {title}
+      </h3>
+      {action}
+    </div>
+    <div className="flex-1 w-full relative min-h-[200px]">
+      <div className="absolute inset-0 flex flex-col">
+        {children}
+      </div>
+    </div>
+  </div>
+);
+
+// 4.3 专用热力图组件
+const ActivityHeatmap = ({ data }) => {
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  
+  const getIntensity = (c) => {
+    if (c === 0) return 'bg-slate-800/50';
+    if (c < 3) return 'bg-cyan-900/60';
+    if (c < 6) return 'bg-cyan-700/70';
+    if (c < 12) return 'bg-cyan-600/80';
+    if (c < 20) return 'bg-cyan-500/90';
+    return 'bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.6)]';
+  };
+
+  return (
+    <div className="flex flex-col h-full w-full select-none font-mono">
+      <div className="flex justify-between text-[10px] text-slate-500 mb-2 px-8">
+        {[0, 6, 12, 18, 23].map(h => <span key={h}>{h}H</span>)}
+      </div>
+      <div className="flex-1 flex flex-col justify-between">
+        {days.map((day, dIdx) => (
+          <div key={day} className="flex items-center gap-2 group h-full">
+            <span className="w-8 text-[10px] text-slate-500 text-right group-hover:text-cyan-400 transition-colors">{day}</span>
+            <div className="flex-1 grid gap-1 h-full" style={{ gridTemplateColumns: 'repeat(24, minmax(0, 1fr))' }}>
+              {Array.from({ length: 24 }).map((_, hIdx) => (
+                <div 
+                  key={hIdx} 
+                  className={`rounded-sm transition-all duration-300 hover:scale-125 hover:z-10 cursor-crosshair h-full ${getIntensity(data[dIdx]?.[hIdx] || 0)}`} 
+                  title={`${day} ${hIdx}:00 - ${data[dIdx]?.[hIdx]} commits`}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};

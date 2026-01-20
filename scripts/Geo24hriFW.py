@@ -212,3 +212,119 @@ class AsyncDatabase:
 
     async def close(self):
         if self._conn: await self._conn.close()
+
+# ==============================================================================
+# 模块 4: [Core] 核心业务层
+# 功能: 具体的采集逻辑，实现 生产者-消费者 模型
+# ==============================================================================
+
+class CollectionEngine:
+    """采集引擎：协调 API 请求与数据库写入"""
+    
+    def __init__(self, token_pool: TokenPool, db: AsyncDatabase):
+        self.token_pool = token_pool
+        self.db = db
+        # 有界队列：提供背压 (Backpressure) 防止内存溢出
+        self.data_queue = asyncio.Queue(maxsize=1000)
+        self.stats = {"saved": 0}
+
+    async def _fetch_page(self, session: aiohttp.ClientSession, variables: dict) -> Optional[dict]:
+        """封装单次 API 请求，包含重试与限流处理"""
+        for attempt in range(AppConfig.MAX_RETRIES):
+            token = await self.token_pool.get_token()
+            headers = {"User-Agent": "GH-Col-v4", "Authorization": f"Bearer {token}"} if token else {}
+            
+            try:
+                async with session.post(
+                    AppConfig.API_URL, 
+                    json={"query": AppConfig.GRAPHQL_TEMPLATE, "variables": variables}, 
+                    headers=headers, 
+                    timeout=AppConfig.TIMEOUT
+                ) as resp:
+                    if resp.status == 200:
+                        res = await resp.json()
+                        # GraphQL 错误处理
+                        if "errors" in res:
+                            logger.error(f"GraphQL Error: {res['errors'][0].get('message')}")
+                            # 识别 API 限流
+                            if "rate limit" in str(res).lower() and token:
+                                self.token_pool.penalize(token, 300)
+                                continue
+                            return None
+                        return res
+                    
+                    # HTTP 限流处理 (403/429)
+                    if resp.status in (403, 429):
+                        wait = int(resp.headers.get("Retry-After", 60))
+                        if token: self.token_pool.penalize(token, wait)
+                    
+                    # 指数退避
+                    await asyncio.sleep(1 * (2 ** attempt)) 
+            except Exception as e:
+                logger.debug(f"Req Error: {e}")
+                await asyncio.sleep(1)
+        return None
+
+    async def producer(self, repo: str, since: str, until: str, pbar: tqdm):
+        """生产者：翻页抓取 -> 解析数据 -> 推送队列"""
+        owner, name = repo.split("/")
+        vars = {"owner": owner, "name": name, "since": since, "until": until, "cursor": None}
+        
+        async with aiohttp.ClientSession() as session:
+            while True:
+                data = await self._fetch_page(session, vars)
+                if not data: break
+                
+                try:
+                    history = data["data"]["repository"]["defaultBranchRef"]["target"]["history"]
+                except (TypeError, KeyError):
+                    break # 数据结构异常或无权限
+
+                batch = []
+                for edge in history.get("edges", []):
+                    node = edge["node"]
+                    # 数据转换
+                    batch.append(CommitRecord(
+                        repo_name=repo,
+                        commit_sha=node["oid"],
+                        timestamp_unix=int(datetime.fromisoformat(node["committedDate"].replace("Z", "+00:00")).timestamp()),
+                        author_login=node.get("author", {}).get("user", {}).get("login", "Unknown") or "Unknown",
+                        author_name=node.get("author", {}).get("name", "Unknown"),
+                        author_email=node.get("author", {}).get("email", ""),
+                        message=node["messageHeadline"]
+                    ))
+                
+                if batch:
+                    await self.data_queue.put(batch) # 队列满时阻塞
+                    pbar.update(len(batch))
+
+                if history["pageInfo"]["hasNextPage"]:
+                    vars["cursor"] = history["pageInfo"]["endCursor"]
+                else:
+                    break
+
+    async def consumer(self):
+        """消费者：读取队列 -> 缓冲 -> 批量写库"""
+        buffer = []
+        while True:
+            batch = await self.data_queue.get()
+            
+            # 哨兵模式：接收 None 退出
+            if batch is None:
+                self.data_queue.task_done()
+                break
+            
+            buffer.extend(batch)
+            # 批量写入优化 IO
+            if len(buffer) >= AppConfig.WRITE_BATCH_SIZE:
+                await self.db.save_batch(buffer)
+                self.stats["saved"] += len(buffer)
+                buffer.clear()
+            
+            self.data_queue.task_done()
+        
+        # 清理残余
+        if buffer:
+            await self.db.save_batch(buffer)
+            self.stats["saved"] += len(buffer)
+

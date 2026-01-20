@@ -120,3 +120,95 @@ class CommitRecord:
             # 保留原始数据的 JSON 备份，便于后续扩展字段
             json.dumps(asdict(self))
         )
+
+# ==============================================================================
+# 模块 3: [Infrastructure] 基础设施层
+# 功能: 提供底层通用服务 (Token池、数据库连接)，不包含具体业务逻辑
+# ==============================================================================
+
+class TokenPool:
+    """
+    Token 资源管理器
+    职责：负载均衡 (Round-Robin) 与 速率限制 (Rate Limiting)
+    """
+    def __init__(self, tokens: List[str]):
+        # 记录 Token 的冷却结束时间戳 (0.0 表示可用)
+        self._tokens = {t: 0.0 for t in tokens}
+        self._lock = asyncio.Lock() # 保证并发安全
+        
+        if not self._tokens:
+            logger.warning("未检测到 Token，将尝试匿名访问 (极易受限)")
+
+    async def get_token(self) -> Optional[str]:
+        """获取可用 Token，若全部冷却则阻塞等待"""
+        if not self._tokens: return None
+        
+        async with self._lock:
+            while True:
+                now = time.time()
+                # 筛选当前可用的 Token
+                available = [t for t, cd in self._tokens.items() if now >= cd]
+                
+                if available:
+                    token = available[0]
+                    # 轮询策略：取出并放回队尾
+                    del self._tokens[token]
+                    self._tokens[token] = 0.0
+                    return token
+                
+                # 若无可用，计算最小等待时间
+                wait_time = min(self._tokens.values()) - now + 0.5
+                logger.warning(f"所有 Token 冷却中，等待 {wait_time:.1f}s")
+                await asyncio.sleep(max(wait_time, 1))
+
+    def penalize(self, token: str, duration: int = 600):
+        """惩罚机制：将触发限流的 Token 暂时移出可用池"""
+        if token in self._tokens:
+            self._tokens[token] = time.time() + duration
+            logger.warning(f"Token [...{token[-4:]}] 冷却 {duration}s")
+
+class AsyncDatabase:
+    """
+    异步数据库包装器
+    职责：连接管理、Schema 初始化、高性能批量写入
+    """
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self._conn: Optional[aiosqlite.Connection] = None
+
+    async def connect(self):
+        """建立连接并开启 WAL 模式优化性能"""
+        self._conn = await aiosqlite.connect(self.db_path)
+        # WAL 模式允许读写并发，极大提升吞吐量
+        await self._conn.execute("PRAGMA journal_mode=WAL")
+        await self._conn.execute("PRAGMA synchronous=NORMAL")
+        
+        # 初始化表结构
+        await self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS commits (
+                sha TEXT PRIMARY KEY,
+                repo TEXT,
+                author_login TEXT,
+                ts_unix INTEGER,
+                message TEXT,
+                raw_json TEXT
+            )
+        """)
+        # 索引优化
+        await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_repo_ts ON commits(repo, ts_unix)")
+        await self._conn.commit()
+
+    async def save_batch(self, records: List[CommitRecord]):
+        """批量写入，使用 INSERT OR IGNORE 自动去重"""
+        if not records: return
+        try:
+            await self._conn.executemany(
+                "INSERT OR IGNORE INTO commits VALUES (?,?,?,?,?,?)", 
+                [r.to_db_row() for r in records]
+            )
+            await self._conn.commit()
+        except Exception as e:
+            logger.error(f"DB 写入异常: {e}")
+
+    async def close(self):
+        if self._conn: await self._conn.close()

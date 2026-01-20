@@ -104,3 +104,95 @@ const DataService = {
     return { commits, history, radarData };
   }
 };
+
+/* =============================================================================
+   MODULE 3: 业务逻辑挂钩 (Custom Hooks / Logic Layer)
+   作用：数据转换器。接收原始数据，转换为 UI 组件（热力图、饼图、列表）所需的特定格式。
+   包含数据聚合、过滤和评分计算逻辑。
+   ============================================================================= */
+
+const useDataProcessor = (project, range, filter) => {
+  // 1. 获取原始数据 (缓存结果)
+  const rawData = useMemo(() => {
+    const config = TIME_RANGES.find(r => r.value === range) || TIME_RANGES[0];
+    return DataService.generate(project, config.days);
+  }, [project, range]);
+
+  // 2. 数据处理与聚合
+  return useMemo(() => {
+    const { commits, history, radarData } = rawData;
+    
+    // 初始化统计容器
+    const hourly = Array(24).fill(0); 
+    const heatmap = Array(7).fill(0).map(() => Array(24).fill(0));
+    const geo = {}; 
+    const users = {};
+
+    // 遍历聚合
+    commits.forEach(c => {
+      const d = new Date(c.timestamp_unix * 1000);
+      const h = d.getUTCHours(), day = d.getUTCDay();
+      
+      hourly[h]++; 
+      heatmap[day][h]++;
+      geo[c.location_iso3] = (geo[c.location_iso3] || 0) + 1;
+      
+      if (!users[c.contributor_id]) users[c.contributor_id] = { ...c, count: 0 };
+      users[c.contributor_id].count++;
+    });
+
+    // 注入模拟的"人类行为模式" (工作时间/周末) - 为了热力图好看
+    const enhancePattern = (arr2d, arr1d) => {
+      // 工作日高峰
+      for (let d = 1; d <= 5; d++) {
+        [[9,11], [14,17]].forEach(([s, e]) => {
+          for (let h = s; h <= e; h++) {
+             const val = Math.floor(Math.random() * 8) + 5;
+             arr2d[d][h] += val;
+             arr1d[h] += val;
+          }
+        });
+        // 随机加班
+        if (Math.random() > 0.5) {
+           for (let h = 20; h <= 22; h++) { 
+             const val = Math.floor(Math.random() * 4) + 1;
+             arr2d[d][h] += val; arr1d[h] += val;
+           }
+        }
+      }
+      // 周末稀疏
+      [0, 6].forEach(d => {
+        if (Math.random() > 0.7) {
+          for (let h = 14; h <= 16; h++) {
+             const val = Math.floor(Math.random() * 3) + 1;
+             arr2d[d][h] += val; arr1d[h] += val;
+          }
+        }
+      });
+    };
+    enhancePattern(heatmap, hourly);
+
+    // 格式化输出数据
+    const countryData = Object.entries(geo).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }));
+    const pieData = [...countryData.slice(0, 5), ...(countryData.length > 5 ? [{ name: 'Other', value: countryData.slice(5).reduce((s, x) => s + x.value, 0) }] : [])];
+    
+    let filteredUsers = Object.values(users);
+    if (filter) filteredUsers = filteredUsers.filter(u => u.location_iso3 === filter);
+    
+    const hriScore = hourly.filter(v => v > 0).length / 24;
+    const geoScore = countryData.length > 0 ? Math.min(1, Math.log(countryData.length) / Math.log(8)) : 0;
+
+    return {
+      heatmapData: heatmap, 
+      radarData, 
+      history,
+      geoData: { countryData, pieData, diversityScore: geoScore },
+      totalCommits: commits.length, 
+      totalContributors: Object.keys(users).length,
+      globalScore: (hriScore + geoScore) / 2,
+      hriCoverage: Math.round(hriScore * 100),
+      filteredContributors: filteredUsers.sort((a, b) => b.count - a.count).slice(0, 20),
+      rawData 
+    };
+  }, [rawData, filter]);
+};

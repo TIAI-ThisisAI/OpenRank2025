@@ -610,3 +610,45 @@ class ReportGenerator:
         }});
     </script>
 </body></html>"""
+
+# =============================================================================
+# 模块 7: 程序入口 (Main Entry Point)
+# 职责: 处理命令行参数，读取环境变量，启动主程序
+# =============================================================================
+
+def main():
+    parser = argparse.ArgumentParser(description="GitHub Insight Pro")
+    parser.add_argument("-p", "--projects", nargs='+', help="GitHub repo paths")
+    parser.add_argument("-f", "--config", help="YAML config file")
+    parser.add_argument("-d", "--days", type=int, default=30)
+    parser.add_argument("-o", "--output", default="reports/insight_report.html")
+    args = parser.parse_args()
+    
+    token = os.environ.get("GITHUB_TOKEN")
+    if not token:
+        logger.critical("Error: 必须设置环境变量 GITHUB_TOKEN")
+        sys.exit(1)
+
+    projects = set(args.projects or [])
+    if args.config:
+        try:
+            with open(args.config, 'r') as f:
+                projects.update(yaml.safe_load(f).get('projects', []))
+        except Exception as e:
+            logger.error(f"配置文件加载失败: {e}")
+
+    if not projects:
+        logger.error("未指定项目。请使用 -p 参数或配置文件。")
+        sys.exit(1)
+
+    config = AppConfig(github_token=token, report_path=args.output, lookback_days=args.days)
+    
+    try:
+        asyncio.run(InsightEngine(config).run(list(projects)))
+    except KeyboardInterrupt:
+        logger.info("用户手动停止程序。")
+    except Exception as e:
+        logger.exception(f"致命错误: {e}")
+
+if __name__ == "__main__":
+    main()

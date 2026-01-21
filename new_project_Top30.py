@@ -243,6 +243,22 @@ def normalize_topic_field(topic_value) -> list:
         return [t.strip() for t in topic_value.split(',') if t.strip()]
     return []
 
+import math
+
+def compute_entropy(distribution: dict) -> float:
+    """
+    Compute entropy for a categorical distribution.
+    """
+    total = sum(distribution.values())
+    if total == 0:
+        return 0.0
+
+    entropy = 0.0
+    for count in distribution.values():
+        p = count / total
+        entropy -= p * math.log(p)
+    return entropy
+
 
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """

@@ -267,6 +267,30 @@ def compute_language_diversity(df: pd.DataFrame, language_column_index: int) -> 
     return compute_entropy(distribution)
 
 
+def analyze_long_tail(distribution: dict, threshold: float = 0.8) -> dict:
+    """
+    Analyze long-tail contribution based on cumulative proportion.
+    """
+    total = sum(distribution.values())
+    cumulative = 0
+    head_items = []
+    tail_items = []
+
+    for key, value in sorted(distribution.items(), key=lambda x: x[1], reverse=True):
+        cumulative += value
+        if cumulative / total <= threshold:
+            head_items.append(key)
+        else:
+            tail_items.append(key)
+
+    return {
+        "head_count": len(head_items),
+        "tail_count": len(tail_items),
+        "head_items": head_items,
+        "tail_items": tail_items
+    }
+
+
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """
     主流程：执行连接、数据读取、处理、保存等任务

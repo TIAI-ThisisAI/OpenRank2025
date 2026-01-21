@@ -191,6 +191,18 @@ def export_analysis_to_json(data: dict, output_path: str):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+def build_repository_summary(df: pd.DataFrame, start_column_index: int) -> dict:
+    """
+    Build a high-level repository metadata summary for analysis.
+    """
+    summary = {
+        "total_repositories": len(df) - 1,
+        "languages": analyze_primary_language_distribution(df, start_column_index + 1),
+        "licenses": analyze_license_distribution(df, start_column_index + 2),
+    }
+    return summary
+
+
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """
     主流程：执行连接、数据读取、处理、保存等任务

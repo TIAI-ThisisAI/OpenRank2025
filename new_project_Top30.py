@@ -165,6 +165,12 @@ def build_repo_metadata_cache(client, repo_names: list) -> dict:
         cache[repo] = parse_repo_query_result(result)
     return cache
 
+def analyze_primary_language_distribution(df: pd.DataFrame, language_column_index: int) -> dict:
+    """
+    Analyze the distribution of primary programming languages.
+    """
+    series = df.iloc[1:, language_column_index]
+    return series.value_counts(dropna=True).to_dict()
 
 
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):

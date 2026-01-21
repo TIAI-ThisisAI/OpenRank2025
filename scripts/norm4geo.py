@@ -143,3 +143,98 @@ def setup_logger(verbose: bool) -> logging.Logger:
     logger.setLevel(logging.DEBUG if verbose else logging.INFO)
     return logger
 
+# ==============================================================================
+# MODULE 5: 持久化层 (Persistence Layer)
+# ==============================================================================
+# 作用：封装 SQLite 操作，负责缓存的读写。使用 WAL 模式优化并发性能。
+
+class StorageEngine:
+    """
+    SQLite 存储引擎
+    
+    关键特性：
+    1. 启用 WAL (Write-Ahead Logging) 模式，支持高并发读写。
+    2. 使用批量插入 (executemany) 提高写入性能。
+    3. 自动处理 SQL 变量限制的分块查询。
+    """
+    
+    def __init__(self, db_path: str, logger: logging.Logger):
+        self.db_path = db_path
+        self.logger = logger
+        self._conn: Optional[sqlite3.Connection] = None
+        self._init_db()
+
+    def _get_conn(self) -> sqlite3.Connection:
+        """获取数据库连接（懒加载）"""
+        if not self._conn:
+            self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            # [优化] 开启 WAL 模式，极大提高并发下的数据库吞吐量
+            self._conn.execute("PRAGMA journal_mode=WAL;")
+            self._conn.execute("PRAGMA synchronous=NORMAL;") 
+        return self._conn
+
+    def _init_db(self):
+        """初始化数据表结构"""
+        with self._get_conn() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS geo_cache (
+                    input_text TEXT PRIMARY KEY,
+                    city TEXT, subdivision TEXT, country_alpha2 TEXT, country_alpha3 TEXT,
+                    confidence REAL, reasoning TEXT, updated_at TEXT
+                )
+            """)
+
+    def get_cached_records(self, inputs: List[str]) -> Dict[str, GeoRecord]:
+        """
+        批量获取缓存记录
+        
+        Args:
+            inputs: 原始输入文本列表
+        Returns:
+            Dict: key为输入文本, value为GeoRecord对象
+        """
+        if not inputs: return {}
+        results = {}
+        conn = self._get_conn()
+        
+        # [防错] SQLite 默认限制 SQL 语句变量数为 999，需分块查询
+        chunk_size = 900 
+        
+        try:
+            for i in range(0, len(inputs), chunk_size):
+                chunk = inputs[i:i + chunk_size]
+                # 动态构建 SQL 参数占位符
+                placeholders = ','.join(['?'] * len(chunk))
+                query = f"SELECT * FROM geo_cache WHERE input_text IN ({placeholders})"
+                
+                cursor = conn.execute(query, chunk)
+                cols = [d[0] for d in cursor.description]
+                
+                for row in cursor:
+                    d = dict(zip(cols, row))
+                    results[d['input_text']] = GeoRecord(**d)
+        except sqlite3.Error as e:
+            self.logger.error(f"Cache read error: {e}")
+            
+        return results
+
+    def save_batch(self, records: List[GeoRecord]):
+        """批量保存或更新记录"""
+        if not records: return
+        sql = """
+            INSERT OR REPLACE INTO geo_cache 
+            (input_text, city, subdivision, country_alpha2, country_alpha3, confidence, reasoning, updated_at) 
+            VALUES (:input_location, :city, :subdivision, :country_alpha2, :country_alpha3, :confidence, :reasoning, :updated_at)
+        """
+        try:
+            conn = self._get_conn()
+            # [优化] 使用事务批量提交
+            conn.executemany(sql, [r.to_dict() for r in records])
+            conn.commit()
+        except sqlite3.Error as e:
+            self.logger.error(f"Cache write error: {e}")
+
+    def close(self):
+        if self._conn:
+            self._conn.close()
+            self._conn = None

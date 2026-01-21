@@ -117,6 +117,13 @@ def clean_repo_names(repo_names: list) -> list:
             cleaned.append(name)
     return cleaned
 
+def validate_write_columns(df: pd.DataFrame, start_column_index: int, width: int = 4) -> bool:
+    """
+    Validate whether the target write columns exist in the DataFrame.
+    """
+    return start_column_index + width <= df.shape[1]
+
+
 
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """

@@ -238,3 +238,97 @@ class StorageEngine:
         if self._conn:
             self._conn.close()
             self._conn = None
+
+# ==============================================================================
+# MODULE 6: 网络层 (Network Layer)
+# ==============================================================================
+# 作用：封装 Gemini API 调用，处理 HTTP 请求、重试逻辑、速率限制和 JSON 解析。
+
+class GeminiClient:
+    """
+    Gemini API 客户端
+    
+    关键特性：
+    1. 指数退避 (Exponential Backoff) 处理 429 限流和 5xx 服务端错误。
+    2. 鲁棒的 JSON 清洗逻辑，处理 LLM 可能返回的 Markdown 标记。
+    """
+    
+    def __init__(self, config: AppConfig, logger: logging.Logger):
+        self.config = config
+        self.logger = logger
+        self.url = f"{API_BASE_URL}/{config.model_name}:generateContent?key={config.api_key}"
+
+    def _clean_json_string(self, text: str) -> str:
+        """清洗 LLM 返回的文本，移除 ```json 包裹"""
+        text = re.sub(r'^```json\s*', '', text, flags=re.MULTILINE)
+        text = re.sub(r'^```\s*', '', text, flags=re.MULTILINE)
+        text = re.sub(r'```\s*$', '', text, flags=re.MULTILINE)
+        return text.strip()
+
+    async def standardize_batch(self, session: aiohttp.ClientSession, batch: List[str]) -> List[GeoRecord]:
+        """异步处理单个批次"""
+        payload = {
+            "contents": [{"parts": [{"text": f"Input List: {json.dumps(batch, ensure_ascii=False)} "}]}],
+            "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": LOCATION_RESPONSE_SCHEMA
+            }
+        }
+
+        # [健壮性] 重试循环
+        for attempt in range(self.config.max_retries):
+            try:
+                async with session.post(self.url, json=payload, timeout=60) as resp:
+                    # 429 Too Many Requests: 触发退避等待
+                    if resp.status == 429:
+                        delay = (2 ** attempt) + 1
+                        await asyncio.sleep(delay)
+                        continue
+                    
+                    if resp.status != 200:
+                        err_text = await resp.text()
+                        # 5xx Server Error: 可重试
+                        if 500 <= resp.status < 600:
+                            self.logger.warning(f"Server Error {resp.status}, retrying...")
+                            await asyncio.sleep(2 ** attempt)
+                            continue
+                        # 4xx Client Error: 不可重试，直接报错退出当前批次
+                        self.logger.error(f"API Error {resp.status}: {err_text[:200]}")
+                        break 
+
+                    data = await resp.json()
+                    return self._parse_response(data, batch)
+
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                self.logger.warning(f"Network error (Try {attempt+1}/{self.config.max_retries}): {e}")
+                await asyncio.sleep(2 ** attempt)
+
+        # 兜底返回：防止整个程序因单个批次失败而崩溃
+        return [GeoRecord(loc, reasoning="API Failed") for loc in batch]
+
+    def _parse_response(self, data: Dict, original_batch: List[str]) -> List[GeoRecord]:
+        """解析 API 返回的 JSON 数据并映射回原始输入"""
+        try:
+            content = data['candidates'][0]['content']['parts'][0]['text']
+            clean_content = self._clean_json_string(content)
+            items = json.loads(clean_content)
+            
+            # [映射逻辑] 建立 hash map 以便 O(1) 查找
+            result_map = {item.get('input_location'): item for item in items}
+            records = []
+            
+            for loc in original_batch:
+                if item := result_map.get(loc):
+                    # 过滤掉不在 dataclass 定义中的多余字段，防止报错
+                    valid_keys = GeoRecord.__dataclass_fields__.keys()
+                    filtered_data = {k: v for k, v in item.items() if k in valid_keys}
+                    filtered_data['input_location'] = loc 
+                    records.append(GeoRecord(**filtered_data))
+                else:
+                    records.append(GeoRecord(loc, reasoning="Model skipped item"))
+            return records
+
+        except (KeyError, json.JSONDecodeError, IndexError) as e:
+            self.logger.error(f"Parsing failed: {e}")
+            return [GeoRecord(loc, reasoning="Parse Error") for loc in original_batch]

@@ -332,3 +332,57 @@ class GeminiClient:
         except (KeyError, json.JSONDecodeError, IndexError) as e:
             self.logger.error(f"Parsing failed: {e}")
             return [GeoRecord(loc, reasoning="Parse Error") for loc in original_batch]
+
+# ==============================================================================
+# MODULE 7: 输入输出层 (IO Layer)
+# ==============================================================================
+# 作用：处理不同格式文件（CSV, JSON, TXT）的读取和写入。
+
+class IOHandler:
+    @staticmethod
+    def read_input(config: AppConfig) -> List[str]:
+        """读取输入文件，根据后缀名自动适配策略"""
+        if config.is_demo:
+            return ["New York", "London", "Shanghai", "Tokyo", "Berlin"] * 6
+        
+        path = Path(config.input_path)
+        if not path.exists(): raise FileNotFoundError(f"{path} not found")
+
+        try:
+            # 策略1: CSV
+            if path.suffix.lower() == '.csv':
+                with open(path, 'r', encoding='utf-8-sig') as f:
+                    reader = csv.DictReader(f)
+                    if not reader.fieldnames: return []
+                    col = config.target_column if config.target_column in reader.fieldnames else reader.fieldnames[0]
+                    return [row[col].strip() for row in reader if row.get(col)]
+            
+            # 策略2: JSON
+            elif path.suffix.lower() == '.json':
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    return [str(x) for x in (data if isinstance(data, list) else data.values())]
+            
+            # 策略3: TXT / 其他
+            else:
+                with open(path, 'r', encoding='utf-8') as f:
+                    return [line.strip() for line in f if line.strip()]
+        except Exception as e:
+            raise ValueError(f"Error reading file: {e}")
+
+    @staticmethod
+    def save_output(results: List[GeoRecord], path_str: str):
+        """保存处理结果"""
+        path = Path(path_str)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = [r.to_dict() for r in results]
+        
+        if path.suffix.lower() == '.json':
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        else:
+            if not data: return
+            with open(path, 'w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.DictWriter(f, fieldnames=data[0].keys())
+                writer.writeheader()
+                writer.writerows(data)

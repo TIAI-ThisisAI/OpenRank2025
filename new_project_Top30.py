@@ -211,6 +211,19 @@ def compute_missing_ratio(df: pd.DataFrame, column_index: int) -> float:
     return missing / total if total > 0 else 0.0
 
 
+def build_completeness_report(df: pd.DataFrame, column_indices: list) -> dict:
+    """
+    Build a completeness report for multiple columns.
+    """
+    report = {}
+    for idx in column_indices:
+        report[idx] = {
+            "missing_ratio": compute_missing_ratio(df, idx),
+            "non_missing_count": df.iloc[1:, idx].notna().sum()
+        }
+    return report
+
+
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """
     主流程：执行连接、数据读取、处理、保存等任务

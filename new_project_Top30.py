@@ -124,6 +124,23 @@ def validate_write_columns(df: pd.DataFrame, start_column_index: int, width: int
     return start_column_index + width <= df.shape[1]
 
 
+def parse_repo_query_result(result) -> dict:
+    """
+    Parse ClickHouse query result into a structured dictionary.
+    """
+    if not is_valid_query_result(result):
+        return {}
+
+    description, primary_language, license, topics = result.first_row
+    return {
+        "description": description,
+        "primary_language": primary_language,
+        "license": license,
+        "topics": topics
+    }
+
+
+
 
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """

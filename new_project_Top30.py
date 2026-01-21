@@ -173,6 +173,14 @@ def analyze_primary_language_distribution(df: pd.DataFrame, language_column_inde
     return series.value_counts(dropna=True).to_dict()
 
 
+def analyze_license_distribution(df: pd.DataFrame, license_column_index: int) -> dict:
+    """
+    Analyze the distribution of open-source licenses.
+    """
+    series = df.iloc[1:, license_column_index]
+    return series.value_counts(dropna=True).to_dict()
+
+
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """
     主流程：执行连接、数据读取、处理、保存等任务

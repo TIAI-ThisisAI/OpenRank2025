@@ -128,3 +128,18 @@ class Statistics:
         """计算处理速度 (条/秒)"""
         return self.total_inputs / self.elapsed if self.elapsed > 0.1 else 0.0
 
+# ==============================================================================
+# MODULE 4: 工具与日志 (Utils & Logging)
+# ==============================================================================
+
+def setup_logger(verbose: bool) -> logging.Logger:
+    """配置控制台日志输出"""
+    logger = logging.getLogger("GeoStandardizer")
+    # 避免重复添加 handler
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s", "%H:%M:%S"))
+        logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+    return logger
+

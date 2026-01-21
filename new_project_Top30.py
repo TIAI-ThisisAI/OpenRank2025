@@ -140,6 +140,19 @@ def parse_repo_query_result(result) -> dict:
     }
 
 
+def write_repo_metadata(
+    df: pd.DataFrame,
+    row_index: int,
+    start_column_index: int,
+    repo_info: dict
+):
+    """
+    Write repository metadata dictionary into a DataFrame row.
+    """
+    df.iloc[row_index, start_column_index] = repo_info.get("description")
+    df.iloc[row_index, start_column_index + 1] = repo_info.get("primary_language")
+    df.iloc[row_index, start_column_index + 2] = repo_info.get("license")
+    df.iloc[row_index, start_column_index + 3] = repo_info.get("topics")
 
 
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):

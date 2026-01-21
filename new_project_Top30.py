@@ -105,6 +105,19 @@ def save_to_excel(df: pd.DataFrame, file_path: str):
     except Exception as e:
         print(f"保存 Excel 文件时发生错误：{e}")
 
+def clean_repo_names(repo_names: list) -> list:
+    """
+    清洗仓库名列表：去除空值、nan、重复项
+    """
+    cleaned = []
+    for name in repo_names:
+        if not name or name.lower() == 'nan':
+            continue
+        if name not in cleaned:
+            cleaned.append(name)
+    return cleaned
+
+
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """
     主流程：执行连接、数据读取、处理、保存等任务

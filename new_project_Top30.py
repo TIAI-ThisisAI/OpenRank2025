@@ -259,6 +259,13 @@ def compute_entropy(distribution: dict) -> float:
         entropy -= p * math.log(p)
     return entropy
 
+def compute_language_diversity(df: pd.DataFrame, language_column_index: int) -> float:
+    """
+    Compute language diversity score using entropy.
+    """
+    distribution = df.iloc[1:, language_column_index].value_counts(dropna=True).to_dict()
+    return compute_entropy(distribution)
+
 
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """

@@ -291,6 +291,15 @@ def analyze_long_tail(distribution: dict, threshold: float = 0.8) -> dict:
     }
 
 
+def compute_feature_sparsity(df: pd.DataFrame, column_index: int) -> float:
+    """
+    Compute sparsity of a feature column.
+    """
+    non_null = df.iloc[1:, column_index].notna().sum()
+    total = len(df) - 1
+    return 1 - non_null / total if total > 0 else 0.0
+
+
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """
     主流程：执行连接、数据读取、处理、保存等任务

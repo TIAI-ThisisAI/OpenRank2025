@@ -300,6 +300,22 @@ def compute_feature_sparsity(df: pd.DataFrame, column_index: int) -> float:
     return 1 - non_null / total if total > 0 else 0.0
 
 
+def build_dataset_profile(df: pd.DataFrame, feature_map: dict) -> dict:
+    """
+    Build a high-level dataset profiling summary.
+    feature_map: {feature_name: column_index}
+    """
+    profile = {}
+    for feature, idx in feature_map.items():
+        profile[feature] = {
+            "missing_ratio": compute_missing_ratio(df, idx),
+            "sparsity": compute_feature_sparsity(df, idx),
+            "unique_values": df.iloc[1:, idx].nunique(dropna=True)
+        }
+    return profile
+
+
+
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """
     主流程：执行连接、数据读取、处理、保存等任务

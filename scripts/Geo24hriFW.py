@@ -329,61 +329,126 @@ class CollectionEngine:
             self.stats["saved"] += len(buffer)
 
 # ==============================================================================
-# 模块 5: [Main] 程序入口与编排
-# 功能: 组装各模块，运行主任务循环
+# 模块 5: [Main] 入口模块 (专业优化版)
+# 功能: 依赖检查、参数解析、任务编排与优雅的生命周期管理
 # ==============================================================================
 
-async def main(repos: List[str]):
-    # 1. 配置检查
+import argparse
+from pathlib import Path
+
+def parse_arguments():
+    """解析命令行参数，提供更灵活的运行配置"""
+    parser = argparse.ArgumentParser(description="GitHub 高性能数据采集系统 (Single File)")
+    
+    # 互斥组：允许直接输入仓库名，或指定文件路径
+    group = parser.add_mutually_exclusive_group(required=False)
+    group.add_argument("-r", "--repos", type=str, help="目标仓库列表，逗号分隔 (例: owner/repo1,owner/repo2)")
+    group.add_argument("-f", "--file", type=str, help="仓库列表文件路径 (每行一个 owner/repo)")
+    
+    parser.add_argument("-d", "--days", type=int, default=30, help="采集过去多少天的数据 (默认: 30)")
+    parser.add_argument("--db", type=str, default=AppConfig.DB_PATH, help=f"数据库输出路径 (默认: {AppConfig.DB_PATH})")
+    
+    return parser.parse_args()
+
+def load_repositories(args) -> List[str]:
+    """加载并清洗仓库列表"""
+    repos = []
+    
+    # 1. 优先读取文件
+    if args.file:
+        file_path = Path(args.file)
+        if not file_path.exists():
+            logger.error(f"文件未找到: {args.file}")
+            sys.exit(1)
+        with open(file_path, "r", encoding="utf-8") as f:
+            repos = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+            
+    # 2. 读取命令行列表
+    elif args.repos:
+        repos = [r.strip() for r in args.repos.split(",") if r.strip()]
+        
+    # 3. 默认回退 (用于测试)
+    else:
+        logger.info("未指定参数，使用默认测试仓库列表")
+        repos = [
+            "python/cpython", "torvalds/linux", "microsoft/vscode",
+            "tensorflow/tensorflow", "django/django"
+        ]
+    
+    logger.info(f"已加载 {len(repos)} 个目标仓库")
+    return repos
+
+async def main():
+    # 1. 参数解析与配置
+    args = parse_arguments()
+    target_repos = load_repositories(args)
+    
     if not AppConfig.GITHUB_TOKENS:
-        logger.warning("无 Token 模式，速率受限。建议设置 GITHUB_TOKENS 环境变量。")
+        logger.warning("警告: 未检测到 Token，运行于匿名限流模式 (极易触发 403)")
 
     # 2. 资源初始化 (Infrastructure)
-    db = AsyncDatabase(AppConfig.DB_PATH)
-    await db.connect()
-    
+    # 使用 args.db 允许用户自定义输出位置
+    db = AsyncDatabase(args.db)
     token_pool = TokenPool(AppConfig.GITHUB_TOKENS)
     engine = CollectionEngine(token_pool, db)
     
-    # 3. 任务参数准备
+    # 3. 计算时间窗口
     until_ts = datetime.now(timezone.utc)
-    since_ts = until_ts - timedelta(days=30)
-    
-    pbar = tqdm(desc="Fetching", unit=" commits")
-    
-    # 4. 启动异步任务
-    # 消费者：后台运行
-    consumer_task = asyncio.create_task(engine.consumer())
-    
-    # 生产者：并发限制
-    sem = asyncio.Semaphore(AppConfig.CONCURRENT_REPOS)
-    
-    async def run_repo(r):
-        async with sem:
-            await engine.producer(r, since_ts.isoformat(), until_ts.isoformat(), pbar)
+    since_ts = until_ts - timedelta(days=args.days)
+    logger.info(f"采集时间窗口: {since_ts.date()} -> {until_ts.date()} ({args.days} days)")
 
-    # 等待所有生产者完成
-    await asyncio.gather(*[run_repo(r) for r in repos])
-    
-    # 5. 优雅关闭
-    await engine.data_queue.put(None) # 发送哨兵
-    await consumer_task # 等待消费者退出
-    
-    pbar.close()
-    await db.close()
-    logger.info(f"任务完成，共入库 {engine.stats['saved']} 条记录")
+    # 进度条初始化
+    pbar = tqdm(total=0, desc="Fetching", unit=" commits", dynamic_ncols=True)
 
-if __name__ == "__main__":
-    # 目标仓库列表
-    target_repos = [
-        "python/cpython", "torvalds/linux", "microsoft/vscode",
-        "tensorflow/tensorflow", "django/django"
-    ]
-    
     try:
-        # Windows 平台 asyncio 兼容性补丁
-        if sys.platform == 'win32':
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-        asyncio.run(main(target_repos))
-    except KeyboardInterrupt:
-        print("\n用户终止")
+        await db.connect()
+        
+        # 4. 启动异步任务
+        # 消费者：后台运行 (fire and forget pattern, but monitored)
+        consumer_task = asyncio.create_task(engine.consumer())
+        
+        # 生产者：创建任务列表
+        sem = asyncio.Semaphore(AppConfig.CONCURRENT_REPOS)
+        
+        async def protected_producer(repo):
+            """带信号量保护的生产者包装器"""
+            async with sem:
+                try:
+                    await engine.producer(repo, since_ts.isoformat(), until_ts.isoformat(), pbar)
+                except Exception as e:
+                    logger.error(f"[{repo}] 采集失败: {e}")
+
+        # 创建所有生产者任务
+        producer_tasks = [asyncio.create_task(protected_producer(repo)) for repo in target_repos]
+        
+        # 等待所有生产者完成
+        # return_exceptions=True 确保个别任务崩溃不影响整体流程
+        await asyncio.gather(*producer_tasks, return_exceptions=True)
+        
+        # 5. 正常结束流程
+        await engine.data_queue.put(None) # 发送哨兵信号
+        await consumer_task               # 等待消费者落库完毕
+
+    except asyncio.CancelledError:
+        logger.warning("\n任务被取消，正在停止...")
+    except Exception as e:
+        logger.error(f"\n运行时发生未捕获异常: {e}")
+    finally:
+        # 6. 资源清理与优雅关闭 (Context Cleanup)
+        # 确保即使在报错或 Ctrl+C 时也能保存队列中剩余的数据
+        if 'consumer_task' in locals() and not consumer_task.done():
+            logger.info("正在等待剩余数据写入数据库...")
+            await engine.data_queue.put(None)
+            try:
+                # 给予消费者 10秒 宽限期将缓冲区写入磁盘
+                await asyncio.wait_for(consumer_task, timeout=10.0)
+            except asyncio.TimeoutError:
+                logger.error("写入超时，部分数据可能丢失")
+        
+        pbar.close()
+        await db.close()
+        
+        final_count = engine.stats['saved']
+        duration = args.days
+        logger.info(f"任务结束 | 累计入库: {final_count} 条记录 | 目标: {len(target_repos)} 仓库")
+

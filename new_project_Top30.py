@@ -224,6 +224,13 @@ def build_completeness_report(df: pd.DataFrame, column_indices: list) -> dict:
     return report
 
 
+def extract_top_n_categories(series: pd.Series, top_n: int = 10) -> dict:
+    """
+    Extract top-N most frequent categories from a pandas Series.
+    """
+    return series.value_counts(dropna=True).head(top_n).to_dict()
+
+
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """
     主流程：执行连接、数据读取、处理、保存等任务

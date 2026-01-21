@@ -483,3 +483,45 @@ class BatchProcessor:
         self.logger.info("-" * 40)
         self.logger.info(f"完成! 耗时: {self.stats.elapsed:.2f}s | 速度: {self.stats.speed:.1f}/s")
         self.logger.info(f"结果已保存至: {self.config.output_path}")
+
+# ==============================================================================
+# MODULE 9: 程序入口 (Entry Point)
+# ==============================================================================
+
+def main():
+    # Windows 环境下 EventLoop 兼容性处理
+    if platform.system() == 'Windows':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+    parser = ArgumentParser(description="Gemini Geo Standardizer", formatter_class=RawTextHelpFormatter)
+    parser.add_argument("--input", "-i", help="输入文件路径 (csv/json/txt)")
+    parser.add_argument("--output", "-o", default="geo_output.csv", help="输出文件路径")
+    parser.add_argument("--key", "-k", default=os.environ.get(ENV_API_KEY_NAME), help="API Key (默认读取环境变量 GEMINI_API_KEY)")
+    parser.add_argument("--model", default="gemini-2.5-flash-preview-09-2025", help="指定模型版本")
+    parser.add_argument("--batch", "-b", type=int, default=30, help="API单次请求的地理位置数量")
+    parser.add_argument("--concurrency", "-c", type=int, default=10, help="并发协程数")
+    parser.add_argument("--cache", default="geo_cache.db", help="SQLite缓存数据库路径")
+    parser.add_argument("--column", default="location", help="CSV/JSON输入文件中的目标列名")
+    parser.add_argument("--demo", action="store_true", help="运行演示模式")
+    parser.add_argument("--verbose", "-v", action="store_true", help="显示调试日志")
+
+    args = parser.parse_args()
+
+    if not args.key:
+        print(f"错误: 必须提供 API Key。请使用 --key 参数或设置环境变量 {ENV_API_KEY_NAME}")
+        sys.exit(1)
+
+    config = AppConfig(
+        input_path=args.input, output_path=args.output, api_key=args.key,
+        model_name=args.model, batch_size=args.batch, concurrency=args.concurrency,
+        max_retries=3, cache_db_path=args.cache, target_column=args.column,
+        is_demo=args.demo, verbose=args.verbose
+    )
+
+    try:
+        asyncio.run(BatchProcessor(config).run())
+    except KeyboardInterrupt:
+        pass
+
+if __name__ == "__main__":
+    main()

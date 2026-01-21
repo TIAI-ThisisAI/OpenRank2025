@@ -154,6 +154,18 @@ def write_repo_metadata(
     df.iloc[row_index, start_column_index + 2] = repo_info.get("license")
     df.iloc[row_index, start_column_index + 3] = repo_info.get("topics")
 
+def build_repo_metadata_cache(client, repo_names: list) -> dict:
+    """
+    Build a repository metadata cache to avoid repeated database queries.
+    """
+    cache = {}
+    for repo in repo_names:
+        query = generate_sql_query(repo)
+        result = query_clickhouse(client, query)
+        cache[repo] = parse_repo_query_result(result)
+    return cache
+
+
 
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """

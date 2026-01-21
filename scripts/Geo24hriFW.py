@@ -452,3 +452,15 @@ async def main():
         duration = args.days
         logger.info(f"任务结束 | 累计入库: {final_count} 条记录 | 目标: {len(target_repos)} 仓库")
 
+if __name__ == "__main__":
+    try:
+        # Windows 平台 asyncio 兼容性补丁
+        if sys.platform == 'win32':
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+            
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        # 捕获最外层的 Ctrl+C，避免打印丑陋的 Traceback
+        # 实际的清理逻辑主要由 main 中的 finally 块处理
+        print("\n[System] 用户强制终止程序")
+        sys.exit(0)

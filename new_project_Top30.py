@@ -202,6 +202,14 @@ def build_repository_summary(df: pd.DataFrame, start_column_index: int) -> dict:
     }
     return summary
 
+def compute_missing_ratio(df: pd.DataFrame, column_index: int) -> float:
+    """
+    Compute the missing value ratio of a specific column.
+    """
+    total = len(df) - 1
+    missing = df.iloc[1:, column_index].isna().sum()
+    return missing / total if total > 0 else 0.0
+
 
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """

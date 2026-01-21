@@ -386,3 +386,100 @@ class IOHandler:
                 writer = csv.DictWriter(f, fieldnames=data[0].keys())
                 writer.writeheader()
                 writer.writerows(data)
+
+# ==============================================================================
+# MODULE 8: 核心控制层 (Core Controller)
+# ==============================================================================
+# 作用：调度中心。负责初始化资源、协调缓存与API、管理并发任务、处理信号中断。
+
+class BatchProcessor:
+    def __init__(self, config: AppConfig):
+        self.config = config
+        self.logger = setup_logger(config.verbose)
+        self.stats = Statistics()
+        self.storage = StorageEngine(config.cache_db_path, self.logger)
+        self.client = GeminiClient(config, self.logger)
+        self.running = True
+        
+        # [优雅退出] 注册信号处理器
+        # 允许用户按 Ctrl+C 时，等待当前正在执行的批次处理完毕再退出，避免数据损坏
+        if platform.system() != 'Windows':
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                signal.signal(sig, self._signal_handler)
+
+    def _signal_handler(self, sig, frame):
+        self.logger.warning("\n[系统信号] 正在停止... 等待当前任务完成...")
+        self.running = False
+
+    async def _worker(self, session: aiohttp.ClientSession, batch: List[str], sem: asyncio.Semaphore, pbar: tqdm):
+        """工作协程：在信号量控制下执行单个批次的任务"""
+        async with sem:
+            if not self.running: return
+            records = await self.client.standardize_batch(session, batch)
+            
+            self.stats.api_processed += len(records)
+            self.storage.save_batch(records) # 实时入库
+            pbar.update(len(batch))
+
+    async def run(self):
+        """主执行流"""
+        try:
+            # 1. 数据准备阶段
+            raw_inputs = IOHandler.read_input(self.config)
+            self.stats.total_inputs = len(raw_inputs)
+            
+            # [去重逻辑] 内存去重，减少 API 调用消耗
+            unique_inputs = list(dict.fromkeys(raw_inputs))
+            self.stats.unique_inputs = len(unique_inputs)
+
+            if not raw_inputs:
+                self.logger.warning("未发现输入数据。")
+                return
+
+            # 2. 缓存过滤阶段
+            cached_map = self.storage.get_cached_records(unique_inputs)
+            self.stats.cached_hits = len(cached_map)
+            # 筛选出真正需要调 API 的数据
+            to_process = [x for x in unique_inputs if x not in cached_map]
+
+            self.logger.info(f"总量: {self.stats.total_inputs} | 去重后: {self.stats.unique_inputs} | "
+                             f"命中缓存: {self.stats.cached_hits} | 待API处理: {len(to_process)}")
+
+            # 3. 并发执行阶段
+            if to_process:
+                sem = asyncio.Semaphore(self.config.concurrency)
+                async with aiohttp.ClientSession() as session:
+                    tasks = []
+                    # 切分批次 (Batching)
+                    batches = [to_process[i:i + self.config.batch_size] 
+                               for i in range(0, len(to_process), self.config.batch_size)]
+                    
+                    with tqdm(total=len(to_process), desc="处理中", unit="loc") as pbar:
+                        for batch in batches:
+                            if not self.running: break
+                            # 创建任务，放入后台执行
+                            tasks.append(asyncio.create_task(self._worker(session, batch, sem, pbar)))
+                        
+                        # 等待所有任务完成
+                        if tasks:
+                            await asyncio.gather(*tasks)
+
+            # 4. 结果合并与导出阶段
+            self.logger.info("正在导出结果...")
+            # 重新从数据库获取最新完整数据（含刚才新写入的）
+            final_cache = self.storage.get_cached_records(unique_inputs)
+            # 按照原始输入顺序还原列表
+            final_results = [final_cache.get(loc, GeoRecord(loc, reasoning="Missing")) for loc in raw_inputs]
+            
+            IOHandler.save_output(final_results, self.config.output_path)
+            self._print_stats()
+
+        except Exception as e:
+            self.logger.error(f"严重错误: {e}", exc_info=True)
+        finally:
+            self.storage.close()
+
+    def _print_stats(self):
+        self.logger.info("-" * 40)
+        self.logger.info(f"完成! 耗时: {self.stats.elapsed:.2f}s | 速度: {self.stats.speed:.1f}/s")
+        self.logger.info(f"结果已保存至: {self.config.output_path}")

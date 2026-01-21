@@ -231,6 +231,19 @@ def extract_top_n_categories(series: pd.Series, top_n: int = 10) -> dict:
     return series.value_counts(dropna=True).head(top_n).to_dict()
 
 
+def normalize_topic_field(topic_value) -> list:
+    """
+    Normalize repository topic field into a list.
+    """
+    if topic_value is None or pd.isna(topic_value):
+        return []
+    if isinstance(topic_value, list):
+        return topic_value
+    if isinstance(topic_value, str):
+        return [t.strip() for t in topic_value.split(',') if t.strip()]
+    return []
+
+
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """
     主流程：执行连接、数据读取、处理、保存等任务

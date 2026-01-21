@@ -181,6 +181,16 @@ def analyze_license_distribution(df: pd.DataFrame, license_column_index: int) ->
     return series.value_counts(dropna=True).to_dict()
 
 
+import json
+
+def export_analysis_to_json(data: dict, output_path: str):
+    """
+    Export analysis results to a JSON file.
+    """
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """
     主流程：执行连接、数据读取、处理、保存等任务

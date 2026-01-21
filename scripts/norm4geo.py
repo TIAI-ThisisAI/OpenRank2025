@@ -73,3 +73,58 @@ SYSTEM_PROMPT = (
     "3. 无法识别的输入，country_alpha3='UNK'，confidence=0。\n"
     "4. 仅输出纯 JSON，不要包含 Markdown 标记。"
 )
+
+# ==============================================================================
+# MODULE 3: 数据模型 (Data Models)
+# ==============================================================================
+# 作用：定义应用程序内部流转的数据结构，使用 dataclass 减少样板代码。
+
+@dataclass
+class AppConfig:
+    """应用程序全局配置对象"""
+    input_path: Optional[str]   # 输入文件路径
+    output_path: str            # 输出文件路径
+    api_key: str                # Gemini API Key
+    model_name: str             # 模型名称
+    batch_size: int             # 单次请求的地理位置数量
+    concurrency: int            # 并发协程数量
+    max_retries: int            # 最大重试次数
+    cache_db_path: str          # SQLite缓存路径
+    target_column: str          # CSV/JSON中的目标字段名
+    is_demo: bool               # 是否为演示模式
+    verbose: bool               # 是否开启详细日志
+
+@dataclass
+class GeoRecord:
+    """单条地理位置记录实体"""
+    input_location: str
+    city: str = ""
+    subdivision: str = ""
+    country_alpha2: str = ""
+    country_alpha3: str = "UNK"
+    confidence: float = 0.0
+    reasoning: str = ""
+    updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+@dataclass
+class Statistics:
+    """运行时统计信息"""
+    total_inputs: int = 0
+    unique_inputs: int = 0
+    cached_hits: int = 0
+    api_processed: int = 0
+    api_errors: int = 0
+    start_time: float = field(default_factory=time.time)
+
+    @property
+    def elapsed(self) -> float:
+        return time.time() - self.start_time
+
+    @property
+    def speed(self) -> float:
+        """计算处理速度 (条/秒)"""
+        return self.total_inputs / self.elapsed if self.elapsed > 0.1 else 0.0
+

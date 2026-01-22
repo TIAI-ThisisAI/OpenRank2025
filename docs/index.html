@@ -102,7 +102,7 @@
             margin-bottom: 15px;
         }
         #searchPanel input {
-            width: 100%;
+            width: 92%;
             padding: 10px;
             margin-bottom: 10px;
             background: rgba(50, 50, 50, 0.8);
@@ -140,12 +140,14 @@
         #countryDetails h3 {
             margin-top: 0;
             margin-bottom: 10px;
-            color: #44ff44;
-            border-bottom: 1px solid #444;
-            padding-bottom: 5px;
+            /* color: #44ff44; */
+            border-top: 1px solid #444;
+            padding-top: 15px;
         }
         #countryDetails p {
             margin: 5px 0;
+            display: flex;
+            justify-content: space-between;
         }
         .detail-label {
             color: #aaa;
@@ -679,87 +681,93 @@
         
         function findCountry() {
             if (isAnimating) return; // 如果正在动画中，则返回
-            
+
             const searchValue = document.getElementById('countrySearch').value.trim().toLowerCase();
             if (!searchValue) return;
-            
-            const foundCountry = countryBars.find(bar => 
-                bar.country.toLowerCase().includes(searchValue) || 
+
+            const foundCountry = countryBars.find(bar =>
+                bar.country.toLowerCase().includes(searchValue) ||
                 bar.continent.toLowerCase().includes(searchValue)
             );
-            
+
             if (foundCountry) {
                 // 重置所有立方体的大小
                 countryBars.forEach(bar => {
                     bar.mesh.scale.copy(bar.originalScale);
                 });
-                
+
                 // 放大选中的立方体
                 foundCountry.mesh.scale.set(
-                    foundCountry.originalScale.x * 1.5,
-                    foundCountry.originalScale.y * 1.5,
-                    foundCountry.originalScale.z * 1.5
+                    foundCountry.originalScale.x * 2,
+                    foundCountry.originalScale.y * 2,
+                    foundCountry.originalScale.z * 2
                 );
-                
+
                 // 更新国家详情面板
                 document.getElementById('countryName').textContent = foundCountry.country;
                 document.getElementById('countryContinent').textContent = foundCountry.continent;
                 document.getElementById('countryDevelopers').textContent = foundCountry.rawCount;
                 document.getElementById('countryRank').textContent = '#' + foundCountry.rank;
                 document.getElementById('countryDetails').style.display = 'block';
-                
+
                 // 获取目标国家的经纬度
                 const targetLat = foundCountry.capital.lat;
                 const targetLon = foundCountry.capital.lon;
-                
-                // 计算目标位置的欧拉角
-                const targetPhi = (90 - targetLat) * Math.PI / 180;
-                const targetTheta = (targetLon + 180) * Math.PI / 180;
-                
-                // 计算当前旋转角度
-                const currentRotationY = earth.rotation.y % (Math.PI * 2);
-                const currentRotationX = earth.rotation.x % (Math.PI * 2);
-                
-                // 计算目标旋转角度
-                let targetRotationY = -targetTheta;
-                let targetRotationX = targetPhi - Math.PI/2;
-                
-                // 修正旋转角度范围，避免跳跃
-                targetRotationY = ((targetRotationY - currentRotationY + Math.PI) % (Math.PI * 2)) - Math.PI + currentRotationY;
-                targetRotationX = ((targetRotationX - currentRotationX + Math.PI) % (Math.PI * 2)) - Math.PI + currentRotationX;
-                
+
+                // 计算目标旋转角度（简化版，减少旋转）
+                // Y轴旋转：将目标经度转到相机前方
+                let targetRotationY = -targetLon * Math.PI / 180 - Math.PI / 2;
+
+                // X轴旋转：将目标纬度转到相机前方
+                let targetRotationX = targetLat * Math.PI / 180;
+
+                // 获取当前旋转角度
+                const currentRotationY = earth.rotation.y;
+                const currentRotationX = earth.rotation.x;
+
+                // 计算最短旋转路径（避免旋转超过180度）
+                let deltaY = targetRotationY - currentRotationY;
+                let deltaX = targetRotationX - currentRotationX;
+
+                // 将角度标准化到[-π, π]范围内
+                while (deltaY > Math.PI) deltaY -= Math.PI * 2;
+                while (deltaY < -Math.PI) deltaY += Math.PI * 2;
+                while (deltaX > Math.PI) deltaX -= Math.PI * 2;
+                while (deltaX < -Math.PI) deltaX += Math.PI * 2;
+
                 // 缓动动画参数
                 let startTime = null;
-                const duration = 1500; // 动画持续时间（毫秒）
-                
+                const duration = 1000; // 动画持续时间（毫秒）
+
                 function animateRotation(timestamp) {
                     if (!startTime) startTime = timestamp;
                     const progress = Math.min(1, (timestamp - startTime) / duration);
-                    
+
                     // 使用缓动函数（easeOutCubic）
                     const easeProgress = 1 - Math.pow(1 - progress, 3);
-                    
+
                     // 插值计算当前旋转角度
-                    earth.rotation.y = currentRotationY + (targetRotationY - currentRotationY) * easeProgress;
-                    earth.rotation.x = currentRotationX + (targetRotationX - currentRotationX) * easeProgress;
-                    
+                    earth.rotation.y = currentRotationY + deltaY * easeProgress;
+                    earth.rotation.x = currentRotationX + deltaX * easeProgress;
+
                     // 同步旋转国家立方体组
                     countryGroup.rotation.y = earth.rotation.y;
                     countryGroup.rotation.x = earth.rotation.x;
-                    
+
                     if (progress < 1) {
                         requestAnimationFrame(animateRotation);
                     } else {
                         isAnimating = false; // 动画结束
                     }
                 }
-                
+
                 isAnimating = true;
                 requestAnimationFrame(animateRotation);
             } else {
                 alert('未找到匹配的国家或地区');
             }
         }
+
 
         // 监听回车键
         document.getElementById('countrySearch').addEventListener('keypress', function(event) {

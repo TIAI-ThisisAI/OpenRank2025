@@ -321,6 +321,12 @@ def aggregate_by_time(df: pd.DataFrame, time_column_index: int, freq: str = 'Q')
     time_series = pd.to_datetime(df.iloc[1:, time_column_index], errors='coerce')
     return time_series.dt.to_period(freq).value_counts().sort_index()
 
+def compute_growth_rate(series: pd.Series) -> pd.Series:
+    """
+    Compute period-over-period growth rate.
+    """
+    return series.pct_change().fillna(0)
+
 
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """

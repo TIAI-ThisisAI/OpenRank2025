@@ -366,6 +366,17 @@ def detect_outliers_iqr(series: pd.Series) -> pd.Series:
     return (series < q1 - 1.5 * iqr) | (series > q3 + 1.5 * iqr)
 
 
+def min_max_normalize(series: pd.Series) -> pd.Series:
+    """
+    Apply min-max normalization.
+    """
+    min_val = series.min()
+    max_val = series.max()
+    if max_val == min_val:
+        return series.apply(lambda x: 0.0)
+    return (series - min_val) / (max_val - min_val)
+
+
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """
     主流程：执行连接、数据读取、处理、保存等任务

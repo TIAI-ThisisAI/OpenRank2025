@@ -346,6 +346,15 @@ def compute_rolling_average(series: pd.Series, window: int = 4) -> pd.Series:
     """
     return series.rolling(window=window, min_periods=1).mean()
 
+def detect_dominant_category(series: pd.Series, threshold: float = 0.5) -> str:
+    """
+    Detect whether a dominant category exists.
+    """
+    distribution = series.value_counts(normalize=True)
+    if not distribution.empty and distribution.iloc[0] >= threshold:
+        return distribution.index[0]
+    return None
+
 
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """

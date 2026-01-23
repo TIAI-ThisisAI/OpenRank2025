@@ -356,6 +356,16 @@ def detect_dominant_category(series: pd.Series, threshold: float = 0.5) -> str:
     return None
 
 
+def detect_outliers_iqr(series: pd.Series) -> pd.Series:
+    """
+    Detect outliers using the IQR method.
+    """
+    q1 = series.quantile(0.25)
+    q3 = series.quantile(0.75)
+    iqr = q3 - q1
+    return (series < q1 - 1.5 * iqr) | (series > q3 + 1.5 * iqr)
+
+
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """
     主流程：执行连接、数据读取、处理、保存等任务

@@ -328,6 +328,13 @@ def compute_growth_rate(series: pd.Series) -> pd.Series:
     return series.pct_change().fillna(0)
 
 
+def compute_growth_rate(series: pd.Series) -> pd.Series:
+    """
+    Compute period-over-period growth rate.
+    """
+    return series.pct_change().fillna(0)
+
+
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):
     """
     主流程：执行连接、数据读取、处理、保存等任务

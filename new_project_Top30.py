@@ -314,6 +314,12 @@ def build_dataset_profile(df: pd.DataFrame, feature_map: dict) -> dict:
         }
     return profile
 
+def aggregate_by_time(df: pd.DataFrame, time_column_index: int, freq: str = 'Q') -> pd.Series:
+    """
+    Aggregate records by time frequency (e.g., quarterly or yearly).
+    """
+    time_series = pd.to_datetime(df.iloc[1:, time_column_index], errors='coerce')
+    return time_series.dt.to_period(freq).value_counts().sort_index()
 
 
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):

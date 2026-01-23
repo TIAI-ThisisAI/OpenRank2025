@@ -340,6 +340,11 @@ def compute_rolling_average(series: pd.Series, window: int = 4) -> pd.Series:
     """
     return series.rolling(window=window, min_periods=1).mean()
 
+def compute_rolling_average(series: pd.Series, window: int = 4) -> pd.Series:
+    """
+    Compute rolling average for trend smoothing.
+    """
+    return series.rolling(window=window, min_periods=1).mean()
 
 
 def run_pipeline(excel_file_path: str, b_column_index: int, start_column_index: int, client_config: dict):

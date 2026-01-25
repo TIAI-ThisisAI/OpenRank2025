@@ -78,3 +78,81 @@ export default {
   width: 100%;
 }
 </style>
+
+<template>
+  <div class="home">
+    <h1>Data Analysis Dashboard</h1>
+    <DataLoader @data-loaded="updateData" />
+    <Filter @filter-applied="applyFilter" />
+    <DataTable :data="filteredData" />
+    <Chart :chartData="chartData" :chartOptions="chartOptions" />
+  </div>
+</template>
+
+<script>
+import DataLoader from '@/components/DataLoader.vue';
+import DataTable from '@/components/DataTable.vue';
+import Chart from '@/components/Chart.vue';
+import Filter from '@/components/Filter.vue';
+
+export default {
+  components: {
+    DataLoader,
+    DataTable,
+    Chart,
+    Filter,
+  },
+  data() {
+    return {
+      rawData: [],
+      filteredData: [],
+      chartData: {},
+      chartOptions: {},
+    };
+  },
+  methods: {
+    updateData(data) {
+      this.rawData = data;
+      this.filteredData = data;
+      this.updateChart();
+    },
+    applyFilter(searchText) {
+      if (!searchText) {
+        this.filteredData = this.rawData;
+      } else {
+        this.filteredData = this.rawData.filter(item => {
+          return Object.values(item).some(val => String(val).includes(searchText));
+        });
+      }
+      this.updateChart();
+    },
+    updateChart() {
+      // Update chart data and options
+      this.chartData = {
+        labels: this.filteredData.map(item => item.name),
+        datasets: [
+          {
+            label: 'Data',
+            data: this.filteredData.map(item => item.value),
+            borderColor: '#42A5F5',
+            fill: false,
+          },
+        ],
+      };
+      this.chartOptions = {
+        responsive: true,
+        scales: {
+          y: { beginAtZero: true },
+        },
+      };
+    },
+  },
+};
+</script>
+
+<style scoped>
+.home {
+  padding: 20px;
+}
+</style>
+

@@ -119,3 +119,31 @@ export default {
 }
 </style>
 
+<template>
+  <div class="filter-container">
+    <input v-model="searchText" placeholder="Search..." @input="applyFilter" />
+  </div>
+</template>
+
+<script>
+export default {
+  data() {
+    return {
+      searchText: '',
+    };
+  },
+  methods: {
+    applyFilter() {
+      this.$emit('filter-applied', this.searchText);
+    },
+  },
+};
+</script>
+
+<style scoped>
+.filter-container {
+  margin-bottom: 10px;
+}
+</style>
+
+

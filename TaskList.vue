@@ -1,0 +1,57 @@
+<template>
+  <div class="task-list">
+    <h2>Task List</h2>
+    <table v-if="tasks.length">
+      <thead>
+        <tr>
+          <th>Task Name</th>
+          <th>Description</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="task in tasks" :key="task.id">
+          <td>{{ task.name }}</td>
+          <td>{{ task.description }}</td>
+          <td>
+            <button @click="editTask(task.id)">Edit</button>
+            <button @click="deleteTask(task.id)">Delete</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p v-else>No tasks available</p>
+  </div>
+</template>
+
+<script>
+export default {
+  props: {
+    tasks: Array,
+  },
+  methods: {
+    editTask(taskId) {
+      this.$emit('edit-task', taskId);
+    },
+    deleteTask(taskId) {
+      this.$emit('delete-task', taskId);
+    },
+  },
+};
+</script>
+
+<style scoped>
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th, td {
+  padding: 8px;
+  text-align: left;
+}
+
+button {
+  margin-right: 5px;
+}
+</style>

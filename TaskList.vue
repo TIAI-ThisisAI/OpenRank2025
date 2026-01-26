@@ -446,6 +446,28 @@ h1 {
   margin-bottom: 20px;
 }
 </style>
+<template>
+  <div class="task-page">
+    <TaskManager />
+  </div>
+</template>
+
+<script>
+import TaskManager from '@/components/TaskManager.vue';
+
+export default {
+  components: {
+    TaskManager,
+  },
+};
+</script>
+
+<style scoped>
+.task-page {
+  padding: 20px;
+}
+</style>
+
 
 
 

@@ -661,6 +661,41 @@ h1 {
   margin-bottom: 20px;
 }
 </style>
+<template>
+  <div class="task-sort">
+    <label for="sort">Sort by Priority</label>
+    <select v-model="sortOrder" @change="sortTasks">
+      <option value="ascending">Ascending</option>
+      <option value="descending">Descending</option>
+    </select>
+  </div>
+</template>
+
+<script>
+export default {
+  data() {
+    return {
+      sortOrder: 'ascending',
+    };
+  },
+  methods: {
+    sortTasks() {
+      this.$emit('sort-tasks', this.sortOrder);
+    },
+  },
+};
+</script>
+
+<style scoped>
+.task-sort {
+  margin-bottom: 15px;
+}
+
+select {
+  padding: 8px;
+  width: 150px;
+}
+</style>
 
 
 

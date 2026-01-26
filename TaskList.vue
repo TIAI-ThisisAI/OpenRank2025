@@ -696,6 +696,68 @@ select {
   width: 150px;
 }
 </style>
+<template>
+  <div class="task-manager">
+    <h1>Task Manager</h1>
+    <TaskSearch @search-tasks="searchTasks" />
+    <TaskFilter @filter-tasks="filterTasks" />
+    <TaskSort @sort-tasks="sortTasks" />
+    <TaskForm
+      v-if="isEditing"
+      :task="currentTask"
+      formTitle="Edit Task"
+      formButtonText="Save Changes"
+      @submit-form="submitForm"
+    />
+    <TaskForm
+      v-else
+      :task="newTask"
+      formTitle="Add New Task"
+      formButtonText="Add Task"
+      @submit-form="submitForm"
+    />
+    <TaskList :tasks="filteredTasks" @edit-task="startEditing" @delete-task="deleteTask" />
+  </div>
+</template>
+
+<script>
+import TaskSearch from '@/components/TaskSearch.vue';
+import TaskForm from '@/components/TaskForm.vue';
+import TaskList from '@/components/TaskList.vue';
+import TaskFilter from '@/components/TaskFilter.vue';
+import TaskSort from '@/components/TaskSort.vue';
+
+export default {
+  components: {
+    TaskSearch,
+    TaskForm,
+    TaskList,
+    TaskFilter,
+    TaskSort,
+  },
+  data() {
+    return {
+      tasks: [
+        { id: 1, name: 'Task 1', description: 'This is the first task', priority: 'high' },
+        { id: 2, name: 'Task 2', description: 'This is the second task', priority: 'medium' },
+      ],
+      filteredTasks: [],
+      isEditing: false,
+      currentTask: { id: null, name: '', description: '', priority: 'low' },
+      newTask: { id: null, name: '', description: '', priority: 'low' },
+    };
+  },
+  methods: {
+    searchTasks(searchText) {
+      if (searchText) {
+        this.filteredTasks = this.tasks.filter(task => {
+          return task.name.toLowerCase().includes(searchText.toLowerCase());
+        });
+      } else {
+        this.filteredTasks = this.tasks;
+      }
+    },
+    filterTasks(priority
 
 
 

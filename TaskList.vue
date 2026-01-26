@@ -87,4 +87,50 @@ input {
   width: 200px;
 }
 </style>
+<template>
+  <div class="task-form">
+    <h2>{{ formTitle }}</h2>
+    <form @submit.prevent="handleSubmit">
+      <label for="name">Task Name</label>
+      <input v-model="task.name" id="name" type="text" required />
+
+      <label for="description">Description</label>
+      <input v-model="task.description" id="description" type="text" required />
+
+      <button type="submit">{{ formButtonText }}</button>
+    </form>
+  </div>
+</template>
+
+<script>
+export default {
+  props: {
+    task: Object,
+    formTitle: String,
+    formButtonText: String,
+  },
+  methods: {
+    handleSubmit() {
+      this.$emit('submit-form', this.task);
+    },
+  },
+};
+</script>
+
+<style scoped>
+form {
+  display: flex;
+  flex-direction: column;
+}
+
+label {
+  margin: 5px 0;
+}
+
+input {
+  padding: 8px;
+  margin-bottom: 10px;
+  width: 200px;
+}
+</style>
 

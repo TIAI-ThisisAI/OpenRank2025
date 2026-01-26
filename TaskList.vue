@@ -467,6 +467,46 @@ export default {
   padding: 20px;
 }
 </style>
+<template>
+  <div class="task-filter">
+    <label for="priority">Filter by Priority</label>
+    <select v-model="selectedPriority" @change="filterTasks">
+      <option value="">All</option>
+      <option value="low">Low</option>
+      <option value="medium">Medium</option>
+      <option value="high">High</option>
+    </select>
+  </div>
+</template>
+
+<script>
+export default {
+  data() {
+    return {
+      selectedPriority: '',
+    };
+  },
+  methods: {
+    filterTasks() {
+      this.$emit('filter-tasks', this.selectedPriority);
+    },
+  },
+};
+</script>
+
+<style scoped>
+.task-filter {
+  margin-bottom: 15px;
+}
+
+select {
+  padding: 8px;
+  width: 150px;
+}
+</style>
+
+
+
 import Vue from 'vue';
 import App from './App.vue';
 

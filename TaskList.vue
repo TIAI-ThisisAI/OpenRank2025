@@ -557,6 +557,110 @@ input, select {
   width: 200px;
 }
 </style>
+<template>
+  <div class="task-manager">
+    <h1>Task Manager</h1>
+    <TaskSearch @search-tasks="searchTasks" />
+    <TaskFilter @filter-tasks="filterTasks" />
+    <TaskForm
+      v-if="isEditing"
+      :task="currentTask"
+      formTitle="Edit Task"
+      formButtonText="Save Changes"
+      @submit-form="submitForm"
+    />
+    <TaskForm
+      v-else
+      :task="newTask"
+      formTitle="Add New Task"
+      formButtonText="Add Task"
+      @submit-form="submitForm"
+    />
+    <TaskList :tasks="filteredTasks" @edit-task="startEditing" @delete-task="deleteTask" />
+  </div>
+</template>
+
+<script>
+import TaskSearch from '@/components/TaskSearch.vue';
+import TaskForm from '@/components/TaskForm.vue';
+import TaskList from '@/components/TaskList.vue';
+import TaskFilter from '@/components/TaskFilter.vue';
+
+export default {
+  components: {
+    TaskSearch,
+    TaskForm,
+    TaskList,
+    TaskFilter,
+  },
+  data() {
+    return {
+      tasks: [
+        { id: 1, name: 'Task 1', description: 'This is the first task', priority: 'high' },
+        { id: 2, name: 'Task 2', description: 'This is the second task', priority: 'medium' },
+      ],
+      filteredTasks: [],
+      isEditing: false,
+      currentTask: { id: null, name: '', description: '', priority: 'low' },
+      newTask: { id: null, name: '', description: '', priority: 'low' },
+    };
+  },
+  methods: {
+    searchTasks(searchText) {
+      if (searchText) {
+        this.filteredTasks = this.tasks.filter(task => {
+          return task.name.toLowerCase().includes(searchText.toLowerCase());
+        });
+      } else {
+        this.filteredTasks = this.tasks;
+      }
+    },
+    filterTasks(priority) {
+      if (priority) {
+        this.filteredTasks = this.tasks.filter(task => task.priority === priority);
+      } else {
+        this.filteredTasks = this.tasks;
+      }
+    },
+    startEditing(taskId) {
+      this.isEditing = true;
+      this.currentTask = this.tasks.find(task => task.id === taskId);
+    },
+    submitForm(taskData) {
+      if (this.isEditing) {
+        const index = this.tasks.findIndex(task => task.id === this.currentTask.id);
+        this.tasks[index] = { ...taskData, id: this.currentTask.id };
+      } else {
+        taskData.id = this.tasks.length + 1;
+        this.tasks.push(taskData);
+      }
+      this.resetForm();
+    },
+    deleteTask(taskId) {
+      this.tasks = this.tasks.filter(task => task.id !== taskId);
+    },
+    resetForm() {
+      this.isEditing = false;
+      this.currentTask = { id: null, name: '', description: '', priority: 'low' };
+      this.newTask = { id: null, name: '', description: '', priority: 'low' };
+      this.filteredTasks = this.tasks;
+    },
+  },
+  created() {
+    this.filteredTasks = this.tasks;
+  },
+};
+</script>
+
+<style scoped>
+.task-manager {
+  padding: 20px;
+}
+
+h1 {
+  margin-bottom: 20px;
+}
+</style>
 
 
 

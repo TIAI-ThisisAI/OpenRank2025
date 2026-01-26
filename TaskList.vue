@@ -55,3 +55,36 @@ button {
   margin-right: 5px;
 }
 </style>
+
+<template>
+  <div class="task-search">
+    <input v-model="searchText" placeholder="Search tasks..." @input="applySearch" />
+  </div>
+</template>
+
+<script>
+export default {
+  data() {
+    return {
+      searchText: '',
+    };
+  },
+  methods: {
+    applySearch() {
+      this.$emit('search-tasks', this.searchText);
+    },
+  },
+};
+</script>
+
+<style scoped>
+.task-search {
+  margin-bottom: 10px;
+}
+
+input {
+  padding: 8px;
+  width: 200px;
+}
+</style>
+

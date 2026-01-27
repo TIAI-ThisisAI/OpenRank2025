@@ -125,4 +125,75 @@ function TaskForm({ task, onSubmit, buttonText }) {
 }
 
 export default TaskForm;
+import React, { useState } from 'react';
+import TaskSearch from './TaskSearch';
+import TaskForm from './TaskForm';
+import TaskList from './TaskList';
+
+function TaskManager() {
+  const [tasks, setTasks] = useState([
+    { id: 1, name: 'Task 1', description: 'This is the first task', priority: 'high' },
+    { id: 2, name: 'Task 2', description: 'This is the second task', priority: 'medium' },
+  ]);
+  const [filteredTasks, setFilteredTasks] = useState(tasks);
+  const [editingTask, setEditingTask] = useState(null);
+
+  const handleSearch = (searchText) => {
+    if (searchText) {
+      setFilteredTasks(
+        tasks.filter((task) =>
+          task.name.toLowerCase().includes(searchText.toLowerCase())
+        )
+      );
+    } else {
+      setFilteredTasks(tasks);
+    }
+  };
+
+  const handleAddTask = (taskData) => {
+    setTasks([
+      ...tasks,
+      { id: tasks.length + 1, ...taskData },
+    ]);
+  };
+
+  const handleEditTask = (taskId) => {
+    const task = tasks.find((task) => task.id === taskId);
+    setEditingTask(task);
+  };
+
+  const handleUpdateTask = (taskData) => {
+    const updatedTasks = tasks.map((task) =>
+      task.id === editingTask.id ? { ...task, ...taskData } : task
+    );
+    setTasks(updatedTasks);
+    setEditingTask(null);
+  };
+
+  const handleDeleteTask = (taskId) => {
+    const updatedTasks = tasks.filter((task) => task.id !== taskId);
+    setTasks(updatedTasks);
+    setFilteredTasks(updatedTasks);
+  };
+
+  return (
+    <div className="task-manager">
+      <h1>Task Manager</h1>
+      <TaskSearch onSearch={handleSearch} />
+      <TaskForm
+        task={editingTask}
+        onSubmit={editingTask ? handleUpdateTask : handleAddTask}
+        buttonText={editingTask ? 'Update Task' : 'Add Task'}
+      />
+      <TaskList
+        tasks={filteredTasks}
+        onEdit={handleEditTask}
+        onDelete={handleDeleteTask}
+      />
+    </div>
+  );
+}
+
+export default TaskManager;
+
 

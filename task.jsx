@@ -195,5 +195,19 @@ function TaskManager() {
 }
 
 export default TaskManager;
+import React from 'react';
+import ReactDOM from 'react-dom';
+import TaskManager from './components/TaskManager';
+
+function App() {
+  return (
+    <div className="App">
+      <TaskManager />
+    </div>
+  );
+}
+
+ReactDOM.render(<App />, document.getElementById('root'));
+
 
 

@@ -34,3 +34,25 @@ function TaskList({ tasks, onEdit, onDelete }) {
 }
 
 export default TaskList;
+
+function TaskSearch({ onSearch }) {
+  const [searchText, setSearchText] = useState('');
+
+  const handleSearch = (event) => {
+    setSearchText(event.target.value);
+    onSearch(event.target.value);
+  };
+
+  return (
+    <div className="task-search">
+      <input
+        type="text"
+        placeholder="Search tasks..."
+        value={searchText}
+        onChange={handleSearch}
+      />
+    </div>
+  );
+}
+
+export default TaskSearch;

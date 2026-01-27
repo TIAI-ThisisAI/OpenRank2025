@@ -56,3 +56,73 @@ function TaskSearch({ onSearch }) {
 }
 
 export default TaskSearch;
+import React, { useState, useEffect } from 'react';
+
+function TaskForm({ task, onSubmit, buttonText }) {
+  const [formData, setFormData] = useState({
+    name: task?.name || '',
+    description: task?.description || '',
+    priority: task?.priority || 'low',
+  });
+
+  useEffect(() => {
+    if (task) {
+      setFormData({
+        name: task.name,
+        description: task.description,
+        priority: task.priority,
+      });
+    }
+  }, [task]);
+
+  const handleChange = (event) => {
+    const { name, value } = event.target;
+    setFormData((prevData) => ({
+      ...prevData,
+      [name]: value,
+    }));
+  };
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    onSubmit(formData);
+  };
+
+  return (
+    <div className="task-form">
+      <h2>{buttonText}</h2>
+      <form onSubmit={handleSubmit}>
+        <label>Task Name</label>
+        <input
+          type="text"
+          name="name"
+          value={formData.name}
+          onChange={handleChange}
+          required
+        />
+        <label>Description</label>
+        <input
+          type="text"
+          name="description"
+          value={formData.description}
+          onChange={handleChange}
+          required
+        />
+        <label>Priority</label>
+        <select
+          name="priority"
+          value={formData.priority}
+          onChange={handleChange}
+        >
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+        <button type="submit">{buttonText}</button>
+      </form>
+    </div>
+  );
+}
+
+export default TaskForm;
+

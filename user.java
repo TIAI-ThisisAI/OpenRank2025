@@ -68,4 +68,10 @@ public class UserManager {
         return users;
     }
 }
+public enum UserRole {
+    ADMIN,
+    USER,
+    GUEST
+}
+
 

@@ -44,3 +44,28 @@ public class User {
                 '}';
     }
 }
+import java.util.ArrayList;
+import java.util.List;
+
+public class UserManager {
+    private List<User> users;
+
+    public UserManager() {
+        users = new ArrayList<>();
+    }
+
+    public void addUser(User user) {
+        users.add(user);
+        System.out.println("User added: " + user);
+    }
+
+    public void removeUser(User user) {
+        users.remove(user);
+        System.out.println("User removed: " + user);
+    }
+
+    public List<User> listUsers() {
+        return users;
+    }
+}
+

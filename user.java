@@ -126,6 +126,42 @@ public class UserManager {
         return users;
     }
 }
+public class UserManager {
+    private List<User> users;
+
+    public UserManager() {
+        users = new ArrayList<>();
+    }
+
+    public void addUser(User user) {
+        if (user == null || user.getName() == null || user.getEmail() == null || user.getRole() == null) {
+            System.out.println("Invalid user. Cannot add.");
+            return;
+        }
+        users.add(user);
+        System.out.println("User added: " + user);
+    }
+
+    public void removeUser(User user) {
+        users.remove(user);
+        System.out.println("User removed: " + user);
+    }
+
+    public List<User> listUsers() {
+        return users;
+    }
+
+    public List<User> searchByRole(UserRole role) {
+        List<User> result = new ArrayList<>();
+        for (User user : users) {
+            if (user.getRole().equals(role.name())) {
+                result.add(user);
+            }
+        }
+        return result;
+    }
+}
+
 
 
 

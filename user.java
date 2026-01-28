@@ -73,5 +73,34 @@ public enum UserRole {
     USER,
     GUEST
 }
+public class MainApp {
+    public static void main(String[] args) {
+        UserManager userManager = new UserManager();
+
+        // Creating users
+        User user1 = new User("Alice", "alice@example.com", UserRole.ADMIN.name());
+        User user2 = new User("Bob", "bob@example.com", UserRole.USER.name());
+
+        // Adding users
+        userManager.addUser(user1);
+        userManager.addUser(user2);
+
+        // Listing users
+        System.out.println("All users:");
+        for (User user : userManager.listUsers()) {
+            System.out.println(user);
+        }
+
+        // Removing a user
+        userManager.removeUser(user1);
+
+        // Listing users after removal
+        System.out.println("Users after removal:");
+        for (User user : userManager.listUsers()) {
+            System.out.println(user);
+        }
+    }
+}
+
 
 

@@ -161,6 +161,62 @@ public class UserManager {
         return result;
     }
 }
+import java.util.Scanner;
+
+public class UserManagerCLI {
+    public static void main(String[] args) {
+        UserManager userManager = new UserManager();
+        Scanner scanner = new Scanner(System.in);
+
+        while (true) {
+            System.out.println("User Manager CLI");
+            System.out.println("1. Add User");
+            System.out.println("2. Remove User");
+            System.out.println("3. List Users");
+            System.out.println("4. Exit");
+            System.out.print("Choose an option: ");
+
+            int option = scanner.nextInt();
+            scanner.nextLine(); // Consume newline
+
+            if (option == 1) {
+                System.out.print("Enter name: ");
+                String name = scanner.nextLine();
+                System.out.print("Enter email: ");
+                String email = scanner.nextLine();
+                System.out.print("Enter role (ADMIN, USER, GUEST): ");
+                String role = scanner.nextLine();
+
+                User user = new User(name, email, role);
+                userManager.addUser(user);
+            } else if (option == 2) {
+                System.out.print("Enter name of user to remove: ");
+                String name = scanner.nextLine();
+                User user = userManager.listUsers().stream()
+                        .filter(u -> u.getName().equals(name))
+                        .findFirst()
+                        .orElse(null);
+                if (user != null) {
+                    userManager.removeUser(user);
+                } else {
+                    System.out.println("User not found.");
+                }
+            } else if (option == 3) {
+                System.out.println("Listing all users:");
+                for (User user : userManager.listUsers()) {
+                    System.out.println(user);
+                }
+            } else if (option == 4) {
+                break;
+            } else {
+                System.out.println("Invalid option. Try again.");
+            }
+        }
+
+        scanner.close();
+    }
+}
+
 
 
 

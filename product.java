@@ -441,6 +441,23 @@ public class ProductManagerCLI {
         scanner.close();
     }
 }
+public class ProductManager {
+    private List<Product> products;
+
+    public ProductManager() {
+        products = new ArrayList<>();
+    }
+
+    // Other methods...
+
+    public void checkStockAlerts(int threshold) {
+        for (Product product : products) {
+            if (product.getStockQuantity() < threshold) {
+                System.out.println("Stock alert! Product: " + product.getName() + " has low stock (" + product.getStockQuantity() + ")");
+            }
+        }
+    }
+}
 
 
 

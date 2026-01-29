@@ -373,6 +373,23 @@ public class Product {
     // Getters and Setters
     // ...
 }
+public class ProductManager {
+    private List<Product> products;
+
+    public ProductManager() {
+        products = new ArrayList<>();
+    }
+
+    // Other methods...
+
+    public void generateProductReport() {
+        System.out.println("Product Report:");
+        for (Product product : products) {
+            System.out.println("Name: " + product.getName() + ", Price: " + product.getPrice() + ", Stock: " + product.getStockQuantity());
+        }
+    }
+}
+
 
 
 

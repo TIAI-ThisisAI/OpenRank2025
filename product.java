@@ -92,5 +92,51 @@ public enum PriceRange {
     MEDIUM,
     HIGH
 }
+import java.util.ArrayList;
+import java.util.List;
+
+public class ProductManager {
+    private List<Product> products;
+
+    public ProductManager() {
+        products = new ArrayList<>();
+    }
+
+    public void addProduct(Product product) {
+        products.add(product);
+        System.out.println("Product added: " + product);
+    }
+
+    public void removeProduct(Product product) {
+        products.remove(product);
+        System.out.println("Product removed: " + product);
+    }
+
+    public void updateProduct(Product product, String name, String description, double price, int stockQuantity) {
+        product.setName(name);
+        product.setDescription(description);
+        product.setPrice(price);
+        product.setStockQuantity(stockQuantity);
+        System.out.println("Product updated: " + product);
+    }
+
+    public List<Product> listProducts() {
+        return products;
+    }
+
+    public List<Product> searchByPriceRange(PriceRange priceRange) {
+        List<Product> result = new ArrayList<>();
+        for (Product product : products) {
+            if (priceRange == PriceRange.LOW && product.getPrice() < 20) {
+                result.add(product);
+            } else if (priceRange == PriceRange.MEDIUM && product.getPrice() >= 20 && product.getPrice() <= 100) {
+                result.add(product);
+            } else if (priceRange == PriceRange.HIGH && product.getPrice() > 100) {
+                result.add(product);
+            }
+        }
+        return result;
+    }
+}
 
 

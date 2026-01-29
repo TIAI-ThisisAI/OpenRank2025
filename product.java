@@ -87,4 +87,10 @@ public class ProductManager {
         return products;
     }
 }
+public enum PriceRange {
+    LOW,
+    MEDIUM,
+    HIGH
+}
+
 

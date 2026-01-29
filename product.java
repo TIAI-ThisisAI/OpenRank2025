@@ -389,6 +389,60 @@ public class ProductManager {
         }
     }
 }
+import java.util.Scanner;
+
+public class ProductManagerCLI {
+    public static void main(String[] args) {
+        ProductManager productManager = new ProductManager();
+        Scanner scanner = new Scanner(System.in);
+
+        // Example products and categories
+        Category electronics = new Category("Electronics", "All electronic products");
+        Product product1 = new Product("Laptop", "High-performance laptop", 1200.0, 10, electronics);
+        productManager.addProduct(product1);
+
+        // CLI loop
+        while (true) {
+            System.out.println("Product Manager CLI");
+            System.out.println("1. Add Product");
+            System.out.println("2. Apply Discount to Product");
+            System.out.println("3. Generate Product Report");
+            System.out.println("4. Exit");
+            System.out.print("Choose an option: ");
+
+            int option = scanner.nextInt();
+            scanner.nextLine(); // Consume newline
+
+            if (option == 1) {
+                // Code to add product...
+            } else if (option == 2) {
+                System.out.print("Enter product name to apply discount: ");
+                String name = scanner.nextLine();
+                System.out.print("Enter discount percentage: ");
+                double discount = scanner.nextDouble();
+                Product product = productManager.listProducts().stream()
+                        .filter(p -> p.getName().equals(name))
+                        .findFirst()
+                        .orElse(null);
+                if (product != null) {
+                    product.applyDiscount(discount);
+                } else {
+                    System.out.println("Product not found.");
+                }
+            } else if (option == 3) {
+                productManager.generateProductReport();
+            } else if (option == 4) {
+                break;
+            } else {
+                System.out.println("Invalid option. Try again.");
+            }
+        }
+
+        scanner.close();
+    }
+}
+
+
 
 
 

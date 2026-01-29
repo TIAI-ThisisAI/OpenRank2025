@@ -743,3 +743,164 @@
                 findCountry();
             }
         });
+        // --- UI 数据填充 ---
+        function populateUI() {
+            // 排行榜
+            const rankContainer = document.getElementById('rankingList');
+            rawData.slice(0, 10).forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'rank-item';
+                div.innerHTML = `
+                    <span class="rank-num ${item.rank<=3?'top3':''}">${item.rank}</span>
+                    <span class="rank-name">${item.country}</span>
+                    <span class="rank-val">${item.rawCount}</span>
+                `;
+                // 点击排行榜定位
+                div.onclick = () => {
+                    document.getElementById('countrySearch').value = item.country;
+                    findCountry();
+                };
+                rankContainer.appendChild(div);
+            });
+
+            // 图例
+            const legendContainer = document.getElementById('legendList');
+            const usedContinents = new Set();
+            rawData.forEach(item => usedContinents.add(item.continent));
+            
+            Object.keys(config.colorMap).forEach(zh => {
+                const en = config.colorMap[zh];
+                const color = '#' + config.colors[en].toString(16).padStart(6, '0');
+                const div = document.createElement('div');
+                div.className = 'legend-row';
+                div.innerHTML = `<div class="dot" style="background:${color}; color:${color}"></div><span>${zh} (${en})</span>`;
+                legendContainer.appendChild(div);
+            });
+        }
+        populateUI();
+
+        function updateDetailPanel(data) {
+            document.getElementById('d-name').textContent = data.country;
+            document.getElementById('d-continent').textContent = data.continent;
+            document.getElementById('d-count').textContent = data.rawCount;
+            document.getElementById('d-rank').textContent = '#' + data.rank;
+            document.getElementById('detailPanel').style.display = 'block';
+        }
+
+        // --- 动画循环 ---
+        const clock = new THREE.Clock();
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = clock.getElapsedTime();
+
+            // 1. 惯性旋转逻辑 (Damping)
+            if (autoRotate) {
+                targetRotationY += 0.001; // 自动旋转速度
+            }
+            // 简单的线性插值实现平滑过渡
+            earthGroup.rotation.y += (targetRotationY - earthGroup.rotation.y) * 0.05;
+            earthGroup.rotation.x += (targetRotationX - earthGroup.rotation.x) * 0.05;
+
+            // 2. 云层独立旋转
+            clouds.rotation.y += 0.0002;
+
+            // 3. 柱体呼吸效果 & 鼠标交互
+            // Raycaster 更新
+            raycaster.setFromCamera(mouse, camera);
+            // 修改：现在检测 hitTargets，包含 Bar 和 BaseDot
+            const intersects = raycaster.intersectObjects(hitTargets);
+            
+            // 逻辑更新：处理 Dot 悬停
+            let currentHoverTarget = null;
+            if (intersects.length > 0) {
+                const hit = intersects[0].object;
+                if (hit.userData.isDot) {
+                    currentHoverTarget = hit.userData.linkedBar;
+                } else {
+                    currentHoverTarget = hit;
+                }
+            }
+            
+            // 重置之前的状态 (如果没有悬停，或者悬停了新的对象)
+            if (intersectedBar && intersectedBar !== currentHoverTarget) {
+                 document.getElementById('container').style.cursor = 'auto';
+                 document.getElementById('tooltip').style.display = 'none';
+                 // 恢复默认颜色强度由loop处理
+            }
+            
+            intersectedBar = currentHoverTarget;
+
+            if (intersectedBar) {
+                const info = intersectedBar.userData.info;
+                document.getElementById('container').style.cursor = 'pointer';
+                
+                // Tooltip
+                const tooltip = document.getElementById('tooltip');
+                tooltip.style.left = (lastMouseX + 15) + 'px'; 
+                tooltip.style.top = (lastMouseY + 15) + 'px'; 
+                tooltip.innerHTML = `<strong>${info.country}</strong><br>${info.rawCount} devs`;
+                tooltip.style.display = 'block';
+                
+                // 临时放大
+                // 注意：这里只操作 intersectedBar，即柱体本身
+                intersectedBar.scale.z = THREE.MathUtils.lerp(intersectedBar.scale.z, 5, 0.1); 
+            }
+
+            // 更新所有柱体动画
+            bars.forEach(bar => {
+                // 基础呼吸: scale Z based on sin(time + random)
+                // 如果被高亮(search)，则忽略呼吸
+                let targetScale = 1;
+                
+                if (bar === intersectedBar) {
+                    targetScale = 5; // Hover 高度
+                    bar.material.opacity = 1.0;
+                } else if (bar.userData.hoverScaleZ > 1.5) {
+                    targetScale = bar.userData.hoverScaleZ; // Search 高亮
+                    bar.material.opacity = 1.0;
+                } else {
+                    // 默认呼吸
+                    targetScale = 1 + Math.sin(time * 3 + bar.userData.randomPhase) * 0.2;
+                    bar.material.opacity = 0.8;
+                }
+                
+                bar.scale.z += (targetScale - bar.scale.z) * 0.1;
+            });
+
+            // 4. 星空缓慢移动 (产生视差感)
+            stars.rotation.y = time * 0.02;
+
+            renderer.render(scene, camera);
+        }
+
+        // 入场动画
+        function introAnimation() {
+            const startY = earthGroup.rotation.y;
+            earthGroup.scale.set(0,0,0);
+            
+            // 简单的放大效果
+            let s = 0;
+            const timer = setInterval(() => {
+                s += 0.02;
+                earthGroup.scale.set(s,s,s);
+                if(s >= 1) {
+                    clearInterval(timer);
+                    earthGroup.scale.set(1,1,1);
+                }
+            }, 16);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // 启动
+        introAnimation();
+        animate();
+
+    </script>
+</body>
+</html>

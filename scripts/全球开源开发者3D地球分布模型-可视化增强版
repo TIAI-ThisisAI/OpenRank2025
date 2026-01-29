@@ -693,3 +693,53 @@
             lastMouseX = event.clientX; // 更新全局鼠标坐标
             lastMouseY = event.clientY; // 更新全局鼠标坐标
         });
+        // --- 搜索功能 ---
+        function findCountry() {
+            const val = document.getElementById('countrySearch').value.toLowerCase();
+            const target = bars.find(b => 
+                b.userData.info.country.toLowerCase().includes(val) || 
+                b.userData.info.continent.toLowerCase().includes(val)
+            );
+
+            if (target) {
+                // 1. 停止自动旋转
+                autoRotate = false;
+                
+                // 2. 计算目标旋转角度
+                // 我们需要将地球转到，使得该国家面对相机 (0, 0, Z)
+                // 国家的原始位置向量
+                const pos = target.position.clone();
+                // 转换为球面坐标
+                const spherical = new THREE.Spherical().setFromVector3(pos);
+                
+                // 计算需要的 group 旋转
+                // Spherical phi是从Y轴正向下来的角度，theta是从Z轴正向逆时针的角度
+                // 我们需要将这个点转到相机面前 (theta = 0, phi = PI/2)
+                
+                // 简化的目标旋转计算：
+                targetRotationY = -spherical.theta - Math.PI / 2; 
+                targetRotationX = Math.PI / 2 - spherical.phi;
+
+                // 3. 高亮显示
+                target.userData.hoverScaleZ = 2.0;
+                target.material.emissiveIntensity = 1.0;
+                
+                updateDetailPanel(target.userData.info);
+                
+                // 4. 重置定时器
+                setTimeout(() => { 
+                    target.userData.hoverScaleZ = 1; 
+                    target.material.emissiveIntensity = 0.6;
+                    autoRotate = true;
+                }, 3000);
+            } else {
+                alert("未找到相关区域");
+            }
+        }
+
+        // 监听回车键搜索
+        document.getElementById('countrySearch').addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                findCountry();
+            }
+        });

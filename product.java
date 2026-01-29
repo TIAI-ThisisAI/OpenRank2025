@@ -178,6 +178,79 @@ public class MainApp {
         }
     }
 }
+import java.util.Scanner;
+
+public class ProductManagerCLI {
+    public static void main(String[] args) {
+        ProductManager productManager = new ProductManager();
+        Scanner scanner = new Scanner(System.in);
+
+        while (true) {
+            System.out.println("Product Manager CLI");
+            System.out.println("1. Add Product");
+            System.out.println("2. Remove Product");
+            System.out.println("3. List Products");
+            System.out.println("4. Search by Price Range");
+            System.out.println("5. Exit");
+            System.out.print("Choose an option: ");
+
+            int option = scanner.nextInt();
+            scanner.nextLine(); // Consume newline
+
+            if (option == 1) {
+                System.out.print("Enter product name: ");
+                String name = scanner.nextLine();
+                System.out.print("Enter product description: ");
+                String description = scanner.nextLine();
+                System.out.print("Enter product price: ");
+                double price = scanner.nextDouble();
+                System.out.print("Enter stock quantity: ");
+                int stockQuantity = scanner.nextInt();
+                scanner.nextLine(); // Consume newline
+
+                Product product = new Product(name, description, price, stockQuantity);
+                productManager.addProduct(product);
+            } else if (option == 2) {
+                System.out.print("Enter name of product to remove: ");
+                String name = scanner.nextLine();
+                Product product = productManager.listProducts().stream()
+                        .filter(p -> p.getName().equals(name))
+                        .findFirst()
+                        .orElse(null);
+                if (product != null) {
+                    productManager.removeProduct(product);
+                } else {
+                    System.out.println("Product not found.");
+                }
+            } else if (option == 3) {
+                System.out.println("Listing all products:");
+                for (Product product : productManager.listProducts()) {
+                    System.out.println(product);
+                }
+            } else if (option == 4) {
+                System.out.println("Search by Price Range");
+                System.out.println("1. Low");
+                System.out.println("2. Medium");
+                System.out.println("3. High");
+                System.out.print("Choose a range: ");
+                int range = scanner.nextInt();
+                PriceRange priceRange = range == 1 ? PriceRange.LOW : range == 2 ? PriceRange.MEDIUM : PriceRange.HIGH;
+
+                System.out.println("Products in " + priceRange + " range:");
+                for (Product product : productManager.searchByPriceRange(priceRange)) {
+                    System.out.println(product);
+                }
+            } else if (option == 5) {
+                break;
+            } else {
+                System.out.println("Invalid option. Try again.");
+            }
+        }
+
+        scanner.close();
+    }
+}
+
 
 
 

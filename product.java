@@ -316,6 +316,29 @@ public class Product {
     // ...
 }
 
+import java.util.List;
+import java.util.ArrayList;
+
+public class ProductManager {
+    private List<Product> products;
+
+    public ProductManager() {
+        products = new ArrayList<>();
+    }
+
+    // Other methods...
+
+    public List<Product> filterByCategory(Category category) {
+        List<Product> result = new ArrayList<>();
+        for (Product product : products) {
+            if (product.getCategory().equals(category)) {
+                result.add(product);
+            }
+        }
+        return result;
+    }
+}
+
 
 
 

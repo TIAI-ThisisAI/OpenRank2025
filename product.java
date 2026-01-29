@@ -55,3 +55,36 @@ public class Product {
                 '}';
     }
 }
+import java.util.ArrayList;
+import java.util.List;
+
+public class ProductManager {
+    private List<Product> products;
+
+    public ProductManager() {
+        products = new ArrayList<>();
+    }
+
+    public void addProduct(Product product) {
+        products.add(product);
+        System.out.println("Product added: " + product);
+    }
+
+    public void removeProduct(Product product) {
+        products.remove(product);
+        System.out.println("Product removed: " + product);
+    }
+
+    public void updateProduct(Product product, String name, String description, double price, int stockQuantity) {
+        product.setName(name);
+        product.setDescription(description);
+        product.setPrice(price);
+        product.setStockQuantity(stockQuantity);
+        System.out.println("Product updated: " + product);
+    }
+
+    public List<Product> listProducts() {
+        return products;
+    }
+}
+

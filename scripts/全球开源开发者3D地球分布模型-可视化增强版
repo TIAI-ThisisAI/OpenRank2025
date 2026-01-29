@@ -311,3 +311,54 @@
             gl_FragColor = vec4(0.0, 0.6, 1.0, 1.0) * intensity;
         }
     </script>
+    <script>
+        // --- 核心配置 ---
+        const config = {
+            colors: {
+                Asia: 0xff3333,
+                NorthAmerica: 0x3388ff,
+                Europe: 0x33ff33,
+                SouthAmerica: 0xffaa00,
+                Africa: 0xcc33ff,
+                Oceania: 0x00ffff,
+                Arctic: 0xffffff
+            },
+            colorMap: {
+                '亚洲': 'Asia', '北美洲': 'NorthAmerica', '欧洲': 'Europe', 
+                '南美洲': 'SouthAmerica', '非洲': 'Africa', '大洋洲': 'Oceania', '北极': 'Arctic'
+            }
+        };
+
+        // --- 数据集 (保留原有数据结构) ---
+        const rawData = [
+             { country: '中国', count: 198.29, capital: { lat: 39.9042, lon: 116.4074 }, continent: '亚洲' },
+             { country: '日本', count: 36.79, capital: { lat: 35.6895, lon: 139.6917 }, continent: '亚洲' },
+             { country: '美国', count: 476.16, capital: { lat: 38.9072, lon: -77.0369 }, continent: '北美洲' },
+             { country: '印度', count: 239.98, capital: { lat: 28.6139, lon: 77.2090 }, continent: '亚洲' },
+             { country: '英国', count: 98.3, capital: { lat: 51.5074, lon: -0.1278 }, continent: '欧洲' },
+             { country: '德国', count: 95.00, capital: { lat: 52.5200, lon: 13.4050 }, continent: '欧洲' },
+             { country: '巴西', count: 80.00, capital: { lat: -15.8267, lon: -47.9218 }, continent: '南美洲' },
+             { country: '加拿大', count: 79.69, capital: { lat: 45.4215, lon: -75.6972 }, continent: '北美洲' },
+             { country: '法国', count: 68.88, capital: { lat: 48.8566, lon: 2.3522 }, continent: '欧洲' },
+             { country: '俄罗斯', count: 57.14, capital: { lat: 55.7558, lon: 37.6173 }, continent: '欧洲' },
+             { country: '澳大利亚', count: 38.03, capital: { lat: -35.2809, lon: 149.1300 }, continent: '大洋洲' },
+             { country: '印度尼西亚', count: 36.64, capital: { lat: -6.2088, lon: 106.8456 }, continent: '亚洲' },
+             { country: '西班牙', count: 36.52, capital: { lat: 40.4168, lon: -3.7038 }, continent: '欧洲' },
+             { country: '乌克兰', count: 32.48, capital: { lat: 50.4501, lon: 30.5234 }, continent: '欧洲' },
+             { country: '意大利', count: 27.23, capital: { lat: 41.9028, lon: 12.4964 }, continent: '欧洲' },
+             { country: '阿根廷', count: 25.71, capital: { lat: -34.6118, lon: -58.3960 }, continent: '南美洲' },
+             { country: '瑞典', count: 24.05, capital: { lat: 59.3293, lon: 18.0686 }, continent: '欧洲' },
+             { country: '墨西哥', count: 22.23, capital: { lat: 19.4326, lon: -99.1332 }, continent: '北美洲' },
+             { country: '越南', count: 21.5, capital: { lat: 21.0278, lon: 105.8342 }, continent: '亚洲' },
+             { country: '巴基斯坦', count: 18.89, capital: { lat: 33.6844, lon: 73.0479 }, continent: '亚洲' },
+             { country: '哥伦比亚', count: 18.35, capital: { lat: 4.7110, lon: -74.0721 }, continent: '南美洲' },
+             { country: '瑞士', count: 18.11, capital: { lat: 46.9480, lon: 7.4474 }, continent: '欧洲' },
+             { country: '尼日利亚', count: 17.69, capital: { lat: 9.0820, lon: 8.6753 }, continent: '非洲' },
+             { country: '葡萄牙', count: 14.69, capital: { lat: 38.7223, lon: -9.1393 }, continent: '欧洲' },
+             { country: '荷兰', count: 30.00, capital: { lat: 52.3676, lon: 4.9041 }, continent: '欧洲' }, // 补一个荷兰
+             { country: '南非', count: 10.5, capital: { lat: -25.7479, lon: 28.2293 }, continent: '非洲' },
+             { country: '埃及', count: 11.86, capital: { lat: 30.0444, lon: 31.2357 }, continent: '非洲' },
+             { country: '新加坡', count: 15.00, capital: { lat: 1.3521, lon: 103.8198 }, continent: '亚洲' },
+             { country: '韩国', count: 28.00, capital: { lat: 37.5665, lon: 126.9780 }, continent: '亚洲' }
+             // ... 为了演示效果，数据量已足够生成酷炫效果，不再列出所有微小国家
+        ];

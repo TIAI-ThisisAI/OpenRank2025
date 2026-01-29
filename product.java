@@ -287,6 +287,36 @@ public class Category {
     }
 }
 
+public class Product {
+    private String name;
+    private String description;
+    private double price;
+    private int stockQuantity;
+    private Category category; // Associated Category
+
+    // Constructor
+    public Product(String name, String description, double price, int stockQuantity, Category category) {
+        this.name = name;
+        this.description = description;
+        this.price = price;
+        this.stockQuantity = stockQuantity;
+        this.category = category;
+    }
+
+    // Getters and Setters
+    public Category getCategory() {
+        return category;
+    }
+
+    public void setCategory(Category category) {
+        this.category = category;
+    }
+
+    // Other getters and setters
+    // ...
+}
+
+
 
 
 

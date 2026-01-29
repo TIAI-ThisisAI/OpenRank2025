@@ -362,3 +362,23 @@
              { country: '韩国', count: 28.00, capital: { lat: 37.5665, lon: 126.9780 }, continent: '亚洲' }
              // ... 为了演示效果，数据量已足够生成酷炫效果，不再列出所有微小国家
         ];
+        // 数据预处理
+        rawData.sort((a, b) => b.count - a.count);
+        rawData.forEach((item, index) => {
+            item.rank = index + 1;
+            item.rawCount = item.count + '万';
+            item.colorKey = config.colorMap[item.continent];
+        });
+
+        // --- Three.js 初始化 ---
+        const scene = new THREE.Scene();
+        // 增加雾化效果，增强景深
+        scene.fog = new THREE.FogExp2(0x050510, 0.002);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 3.5; // 初始拉远一点
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 性能优化
+        document.getElementById('container').appendChild(renderer.domElement);

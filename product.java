@@ -139,4 +139,45 @@ public class ProductManager {
     }
 }
 
+public class MainApp {
+    public static void main(String[] args) {
+        ProductManager productManager = new ProductManager();
+
+        // Creating products
+        Product product1 = new Product("Laptop", "High-performance laptop", 1200.0, 10);
+        Product product2 = new Product("Smartphone", "Latest smartphone with great camera", 800.0, 50);
+        Product product3 = new Product("Headphones", "Noise-cancelling headphones", 150.0, 100);
+
+        // Adding products
+        productManager.addProduct(product1);
+        productManager.addProduct(product2);
+        productManager.addProduct(product3);
+
+        // Listing all products
+        System.out.println("All Products:");
+        for (Product product : productManager.listProducts()) {
+            System.out.println(product);
+        }
+
+        // Searching products by price range
+        System.out.println("\nLow Price Products:");
+        for (Product product : productManager.searchByPriceRange(PriceRange.LOW)) {
+            System.out.println(product);
+        }
+
+        // Updating product
+        productManager.updateProduct(product1, "Laptop Pro", "Updated high-performance laptop", 1400.0, 5);
+
+        // Removing product
+        productManager.removeProduct(product3);
+
+        // Listing products after removal and update
+        System.out.println("\nProducts after removal and update:");
+        for (Product product : productManager.listProducts()) {
+            System.out.println(product);
+        }
+    }
+}
+
+
 

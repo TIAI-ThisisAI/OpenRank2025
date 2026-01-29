@@ -339,6 +339,42 @@ public class ProductManager {
     }
 }
 
+public class Product {
+    private String name;
+    private String description;
+    private double price;
+    private int stockQuantity;
+    private Category category;
+    private double discount = 0.0; // Discount value (0 means no discount)
+
+    // Constructor
+    public Product(String name, String description, double price, int stockQuantity, Category category) {
+        this.name = name;
+        this.description = description;
+        this.price = price;
+        this.stockQuantity = stockQuantity;
+        this.category = category;
+    }
+
+    // Method to apply discount
+    public void applyDiscount(double discountPercentage) {
+        this.discount = discountPercentage;
+        this.price = this.price - (this.price * discountPercentage / 100);
+        System.out.println("Discount applied: " + discountPercentage + "%");
+    }
+
+    // Method to reset discount
+    public void resetDiscount() {
+        this.price = this.price / (1 - this.discount / 100);
+        this.discount = 0.0;
+        System.out.println("Discount reset.");
+    }
+
+    // Getters and Setters
+    // ...
+}
+
+
 
 
 

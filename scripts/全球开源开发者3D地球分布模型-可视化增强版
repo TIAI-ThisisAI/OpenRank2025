@@ -235,3 +235,79 @@
         }
     </style>
 </head>
+
+<body>
+    <div id="container"></div>
+
+    <div id="header">
+        <h1>Global Open Source Visualization</h1>
+        <div class="subtitle">全球开源开发者 3D 分布与协作图谱</div>
+    </div>
+
+    <div id="leftPanel" class="glass-panel">
+        <div class="search-box">
+            <input type="text" id="countrySearch" placeholder="输入国家名称 (如: 中国, USA)..." autocomplete="off">
+            <button class="search-btn" onclick="findCountry()">定位国家 / Locate</button>
+        </div>
+
+        <div id="statsBox">
+            <h3>实时数据概览 / Overview</h3>
+            <div class="stat-row">
+                <span class="stat-label">Total Developers</span>
+                <span class="stat-value">20,295,300+</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Coverage</span>
+                <span class="stat-value">242 Regions</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">YoY Growth</span>
+                <span class="stat-value" style="color:#44ff44">▲ 12.3%</span>
+            </div>
+        </div>
+
+        <div id="detailPanel">
+            <h3 style="color: var(--primary-color)">选定区域详情</h3>
+            <div class="stat-row"><span class="stat-label">Country</span><span class="stat-value" id="d-name">-</span></div>
+            <div class="stat-row"><span class="stat-label">Continent</span><span class="stat-value" id="d-continent">-</span></div>
+            <div class="stat-row"><span class="stat-label">Dev Count</span><span class="stat-value" id="d-count">-</span></div>
+            <div class="stat-row"><span class="stat-label">Global Rank</span><span class="stat-value" id="d-rank">-</span></div>
+        </div>
+    </div>
+
+    <div id="rightPanel">
+        <div class="glass-panel" style="padding: 15px;">
+            <h3>Top 10 Hubs</h3>
+            <div id="rankingList">
+                <!-- JS will populate this -->
+            </div>
+        </div>
+
+        <div class="glass-panel" style="padding: 15px;">
+            <h3>Region Legend</h3>
+            <div id="legendList">
+                <!-- JS will populate this -->
+            </div>
+        </div>
+    </div>
+
+    <div id="tooltip"></div>
+    <div id="controls-hint">🖱️ 左键拖动旋转 · 滚轮缩放 · 右键平移</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <!-- 大气层 Shader 代码 (Vertex & Fragment) -->
+    <script id="vertexShader" type="x-shader/x-vertex">
+        varying vec3 vNormal;
+        void main() {
+            vNormal = normalize(normalMatrix * normal);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    </script>
+    <script id="fragmentShader" type="x-shader/x-fragment">
+        varying vec3 vNormal;
+        void main() {
+            float intensity = pow(0.6 - dot(vNormal, vec3(0, 0, 1.0)), 4.0);
+            gl_FragColor = vec4(0.0, 0.6, 1.0, 1.0) * intensity;
+        }
+    </script>

@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>全球开源开发者 3D 可视化系统</title>
+    <style>
+        :root {
+            --primary-color: #00f3ff;
+            --glass-bg: rgba(20, 30, 40, 0.6);
+            --glass-border: 1px solid rgba(255, 255, 255, 0.1);
+            --text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050510;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            color: #eee;
+        }
+
+        #container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at center, #1a1a2e 0%, #000000 100%);
+        }
+
+        /* 通用玻璃拟态面板样式 */
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: var(--glass-border);
+            border-radius: 8px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            transition: all 0.3s ease;
+            /* 确保面板内的鼠标事件正常处理 */
+            pointer-events: auto; 
+        }
+
+        #header {
+            position: absolute;
+            top: 20px;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 24px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--primary-color);
+            text-shadow: var(--text-shadow);
+        }
+
+        .subtitle {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 5px;
+        }
+
+        #tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.85);
+            color: var(--primary-color);
+            padding: 12px;
+            border-radius: 4px;
+            font-size: 14px;
+            pointer-events: none;
+            z-index: 100;
+            display: none;
+            border: 1px solid var(--primary-color);
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.2);
+            white-space: nowrap;
+        }
+
+        #leftPanel {
+            position: absolute;
+            top: 80px;
+            left: 20px;
+            width: 280px;
+            z-index: 100;
+            padding: 20px;
+        }
+
+        #rightPanel {
+            position: absolute;
+            top: 80px;
+            right: 20px;
+            width: 240px;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        /* 搜索框样式 */
+        .search-box {
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 12px 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            color: white;
+            box-sizing: border-box;
+            outline: none;
+            transition: 0.3s;
+        }
+
+        .search-box input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 10px rgba(0, 243, 255, 0.2);
+        }
+
+        .search-btn {
+            width: 100%;
+            padding: 10px;
+            margin-top: 10px;
+            background: linear-gradient(45deg, #0077ff, #00f3ff);
+            border: none;
+            border-radius: 4px;
+            color: #000;
+            font-weight: bold;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: 0.3s;
+        }
+
+        .search-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 243, 255, 0.3);
+        }
+
+        /* 统计数据样式 */
+        h3 {
+            margin: 0 0 15px 0;
+            color: #fff;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 8px;
+            font-size: 16px;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            font-size: 13px;
+        }
+
+        .stat-label { color: #8899a6; }
+        .stat-value { 
+            color: var(--primary-color); 
+            font-weight: bold; 
+            font-family: 'Courier New', monospace;
+        }
+
+        /* 排行榜 */
+        .rank-item {
+            display: flex;
+            align-items: center;
+            padding: 6px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 13px;
+            transition: 0.2s;
+            cursor: pointer; /* 增加手指光标提示可点击 */
+        }
+
+        .rank-item:hover {
+            background: rgba(255,255,255,0.05);
+            padding-left: 5px;
+        }
+
+        .rank-num {
+            width: 24px;
+            color: #666;
+            font-weight: bold;
+        }
+        
+        .rank-num.top3 { color: #ffd700; text-shadow: 0 0 5px rgba(255, 215, 0, 0.5); }
+
+        .rank-name { flex: 1; }
+        .rank-val { color: #fff; opacity: 0.8; }
+
+        /* 图例 */
+        .legend-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 10px;
+            box-shadow: 0 0 5px currentColor;
+        }
+
+        /* 详情面板 */
+        #detailPanel {
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            display: none;
+            animation: fadeIn 0.5s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 底部控制提示 */
+        #controls-hint {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255,255,255,0.4);
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 10;
+        }
+    </style>
+</head>

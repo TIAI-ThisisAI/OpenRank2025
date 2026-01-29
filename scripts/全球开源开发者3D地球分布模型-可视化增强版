@@ -382,3 +382,314 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 性能优化
         document.getElementById('container').appendChild(renderer.domElement);
+        // --- 核心对象组 ---
+        // 我们将所有依附于地球的物体放入一个 Group，这样旋转 Group 即可带动所有物体
+        const earthGroup = new THREE.Group();
+        scene.add(earthGroup);
+
+        // --- 1. 创建星空背景 (粒子系统) ---
+        function createStars() {
+            const geometry = new THREE.BufferGeometry();
+            const count = 3000;
+            const positions = new Float32Array(count * 3);
+            const colors = new Float32Array(count * 3);
+
+            for (let i = 0; i < count; i++) {
+                const r = 400 + Math.random() * 400; // 距离中心 400-800
+                const theta = 2 * Math.PI * Math.random();
+                const phi = Math.acos(2 * Math.random() - 1);
+                
+                positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+                positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+                positions[i * 3 + 2] = r * Math.cos(phi);
+
+                // 星星颜色随机微调
+                const colorType = Math.random();
+                if(colorType > 0.9) { colors[i*3]=1; colors[i*3+1]=0.8; colors[i*3+2]=0.8; } // 红巨星
+                else if(colorType > 0.7) { colors[i*3]=0.8; colors[i*3+1]=0.8; colors[i*3+2]=1; } // 蓝巨星
+                else { colors[i*3]=1; colors[i*3+1]=1; colors[i*3+2]=1; } // 白星
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            const material = new THREE.PointsMaterial({
+                size: 1.5,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.8,
+                sizeAttenuation: true
+            });
+
+            const starField = new THREE.Points(geometry, material);
+            scene.add(starField);
+            return starField;
+        }
+        const stars = createStars();
+
+        // --- 2. 创建地球本体 ---
+        const textureLoader = new THREE.TextureLoader();
+        // 使用更高清或色彩更深的贴图 URL 模拟科技感
+        const earthGeo = new THREE.SphereGeometry(1, 64, 64);
+        const earthMat = new THREE.MeshPhongMaterial({
+            map: textureLoader.load('https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg'),
+            specularMap: textureLoader.load('https://threejs.org/examples/textures/planets/earth_specular_2048.jpg'),
+            normalMap: textureLoader.load('https://threejs.org/examples/textures/planets/earth_normal_2048.jpg'),
+            normalScale: new THREE.Vector2(0.85, 0.85),
+            specular: new THREE.Color(0x333333),
+            shininess: 15
+        });
+        const earth = new THREE.Mesh(earthGeo, earthMat);
+        earthGroup.add(earth);
+
+        // --- 3. 创建大气层光晕 (Shader) ---
+        const atmosGeo = new THREE.SphereGeometry(1.2, 64, 64); // 稍大一点
+        const atmosMat = new THREE.ShaderMaterial({
+            vertexShader: document.getElementById('vertexShader').textContent,
+            fragmentShader: document.getElementById('fragmentShader').textContent,
+            blending: THREE.AdditiveBlending,
+            side: THREE.BackSide,
+            transparent: true
+        });
+        const atmosphere = new THREE.Mesh(atmosGeo, atmosMat);
+        scene.add(atmosphere); // 大气层不随地球转动，而是永远面向摄像机边缘
+
+        // --- 4. 创建云层 ---
+        const cloudGeo = new THREE.SphereGeometry(1.01, 64, 64);
+        const cloudMat = new THREE.MeshPhongMaterial({
+            map: textureLoader.load('https://threejs.org/examples/textures/planets/earth_clouds_1024.png'),
+            transparent: true,
+            opacity: 0.6,
+            blending: THREE.AdditiveBlending,
+            side: THREE.DoubleSide
+        });
+        const clouds = new THREE.Mesh(cloudGeo, cloudMat);
+        earthGroup.add(clouds);
+
+        // --- 5. 数据可视化 (发光柱体 + 动态效果) ---
+        const bars = [];
+        const hitTargets = []; // 用于射线检测的交互对象列表
+        const maxData = rawData[0].count; // 最大值用于归一化
+
+        // 经纬度转 Vector3 (修正版)
+        function latLonToVector3(lat, lon, radius) {
+            const phi = (90 - lat) * (Math.PI / 180);
+            const theta = (lon + 90) * (Math.PI / 180); // 修正：调整经度偏移量以对齐纹理 (lon + 90)
+
+            // 标准 SphereGeometry 的 UV 映射下，需要反转 X 轴或调整 theta
+            // 经过修正的公式，确保 Lon 0 对应 Z 轴正向 (Greenwich)
+            const x = -(radius * Math.sin(phi) * Math.cos(theta));
+            const z = (radius * Math.sin(phi) * Math.sin(theta));
+            const y = (radius * Math.cos(phi));
+            
+            return new THREE.Vector3(x, y, z);
+        }
+
+        // 创建柱体
+        rawData.forEach(data => {
+            const height = (data.count / maxData) * 0.5 + 0.05; // 高度映射
+            const colorHex = config.colors[data.colorKey] || 0xffffff;
+            
+            // --- 新增：底部标记点 (Base Dot) ---
+            // 这可以帮助用户定位，即使柱体缩短时也能看到位置
+            // 增大半径至 0.025 以更方便点击
+            const baseGeometry = new THREE.CircleGeometry(0.025, 16);
+            const baseMaterial = new THREE.MeshBasicMaterial({
+                color: colorHex,
+                transparent: true,
+                opacity: 0.6,
+                side: THREE.DoubleSide
+            });
+            const baseDot = new THREE.Mesh(baseGeometry, baseMaterial);
+            // 稍微高出地球表面一点点 (1.002) 防止 Z-fighting闪烁
+            const basePos = latLonToVector3(data.capital.lat, data.capital.lon, 1.002);
+            baseDot.position.copy(basePos);
+            baseDot.lookAt(new THREE.Vector3(0,0,0));
+            
+            // 为 Dot 添加 userData，以便交互
+            baseDot.userData = { 
+                info: data, 
+                isDot: true 
+            };
+            
+            earthGroup.add(baseDot);
+            
+            // --- 柱体 ---
+            // 加粗至 0.03 方便鼠标交互
+            const geometry = new THREE.BoxGeometry(0.03, 0.03, height); // 初始 lying down on Z
+            geometry.applyMatrix4(new THREE.Matrix4().makeTranslation(0, 0, height / 2)); // 调整锚点到底部
+
+            // 发光材质
+            const material = new THREE.MeshPhongMaterial({
+                color: colorHex,
+                emissive: colorHex,
+                emissiveIntensity: 0.6,
+                transparent: true,
+                opacity: 0.9
+            });
+
+            const bar = new THREE.Mesh(geometry, material);
+            const pos = latLonToVector3(data.capital.lat, data.capital.lon, 1);
+            
+            bar.position.copy(pos);
+            bar.lookAt(new THREE.Vector3(0,0,0)); // 指向圆心
+            
+            // 存入自定义属性用于动画
+            bar.userData = {
+                originalScaleZ: 1,
+                hoverScaleZ: 1,
+                info: data,
+                randomPhase: Math.random() * Math.PI * 2 // 随机相位用于呼吸效果
+            };
+            
+            // 关键：将 Bar 链接到 Dot，这样悬停 Dot 时可以找到对应的 Bar 进行动画
+            baseDot.userData.linkedBar = bar;
+
+            earthGroup.add(bar);
+            bars.push(bar);
+            
+            // 将 Bar 和 Dot 都加入射线检测列表
+            hitTargets.push(bar);
+            hitTargets.push(baseDot);
+        });
+
+        // --- 6. 连接线 (Bezier Curves) ---
+        // 选取 Top 10 国家，随机连接生成网络
+        const lineMaterial = new THREE.LineBasicMaterial({
+            color: 0x00f3ff,
+            transparent: true,
+            opacity: 0.3,
+            blending: THREE.AdditiveBlending
+        });
+
+        const topCountries = rawData.slice(0, 15);
+        for(let i=0; i<topCountries.length; i++) {
+            for(let j=i+1; j<topCountries.length; j++) {
+                if(Math.random() > 0.7) { // 30% 概率连接，避免太乱
+                    const p1 = latLonToVector3(topCountries[i].capital.lat, topCountries[i].capital.lon, 1);
+                    const p2 = latLonToVector3(topCountries[j].capital.lat, topCountries[j].capital.lon, 1);
+                    
+                    // 计算控制点 (拉高曲线)
+                    const dist = p1.distanceTo(p2);
+                    const mid = p1.clone().add(p2).multiplyScalar(0.5).normalize().multiplyScalar(1 + dist * 0.5);
+                    
+                    const curve = new THREE.QuadraticBezierCurve3(p1, mid, p2);
+                    const points = curve.getPoints(50);
+                    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                    
+                    const line = new THREE.Line(geometry, lineMaterial);
+                    earthGroup.add(line);
+                    
+                    // 添加飞行的光点粒子
+                    // (为了代码简洁，这里暂不添加复杂的流光粒子，仅展示静态弧线网络)
+                }
+            }
+        }
+
+        // --- 灯光系统 ---
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.5); // 较暗的环境光
+        scene.add(ambientLight);
+
+        const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        sunLight.position.set(5, 3, 5);
+        scene.add(sunLight);
+
+        const rimLight = new THREE.DirectionalLight(0x4455ff, 0.5); // 蓝色背光
+        rimLight.position.set(-5, 0, -5);
+        scene.add(rimLight);
+
+        // --- 交互控制 (鼠标拖拽 + 惯性 + 滚轮) ---
+        let targetRotationX = 0;
+        let targetRotationY = 0;
+        let targetRotationXOnMouseDown = 0;
+        let targetRotationYOnMouseDown = 0;
+        let mouseX = 0, mouseY = 0;
+        let mouseXOnMouseDown = 0, mouseYOnMouseDown = 0;
+        let windowHalfX = window.innerWidth / 2;
+        let windowHalfY = window.innerHeight / 2;
+        let isDragging = false;
+        
+        // 目标位置的缓存（用于自动旋转逻辑）
+        let autoRotate = true;
+
+        document.addEventListener('mousedown', onDocumentMouseDown, false);
+        document.addEventListener('touchstart', onDocumentTouchStart, {passive: false});
+        document.addEventListener('wheel', onDocumentMouseWheel, {passive: false});
+        // 右键处理
+        document.addEventListener('contextmenu', event => event.preventDefault());
+
+        function onDocumentMouseDown(event) {
+            // 修复：如果点击的是UI面板内部的元素（如输入框、按钮或面板背景），则不执行Canvas拖拽逻辑
+            if (event.target.closest('.glass-panel') || event.target.tagName === 'INPUT' || event.target.tagName === 'BUTTON') {
+                return;
+            }
+
+            event.preventDefault();
+            document.addEventListener('mousemove', onDocumentMouseMove, false);
+            document.addEventListener('mouseup', onDocumentMouseUp, false);
+            document.addEventListener('mouseout', onDocumentMouseUp, false);
+
+            mouseXOnMouseDown = event.clientX - windowHalfX;
+            mouseYOnMouseDown = event.clientY - windowHalfY;
+            targetRotationYOnMouseDown = targetRotationY;
+            targetRotationXOnMouseDown = targetRotationX;
+            isDragging = true;
+            autoRotate = false; // 用户交互时停止自动旋转
+        }
+
+        function onDocumentMouseMove(event) {
+            mouseX = event.clientX - windowHalfX;
+            mouseY = event.clientY - windowHalfY;
+            // 简单的比例映射
+            targetRotationY = targetRotationYOnMouseDown + (mouseX - mouseXOnMouseDown) * 0.005;
+            targetRotationX = targetRotationXOnMouseDown + (mouseY - mouseYOnMouseDown) * 0.005;
+        }
+
+        function onDocumentMouseUp(event) {
+            document.removeEventListener('mousemove', onDocumentMouseMove, false);
+            document.removeEventListener('mouseup', onDocumentMouseUp, false);
+            document.removeEventListener('mouseout', onDocumentMouseUp, false);
+            isDragging = false;
+            // 松开后不立即恢复自动旋转，留给用户观察
+            setTimeout(() => { if(!isDragging) autoRotate = true; }, 5000);
+        }
+
+        function onDocumentTouchStart(event) {
+            if (event.touches.length === 1) {
+                // 修复：触摸UI时不旋转地球
+                if (event.target.closest('.glass-panel') || event.target.tagName === 'INPUT' || event.target.tagName === 'BUTTON') {
+                    return;
+                }
+                event.preventDefault();
+                mouseXOnMouseDown = event.touches[0].pageX - windowHalfX;
+                targetRotationYOnMouseDown = targetRotationY;
+                targetRotationXOnMouseDown = targetRotationX; // Initialize X too
+                // 这里简化Touch逻辑，仅处理单指旋转
+                // 需要完善Touch Move...
+            }
+        }
+
+        function onDocumentMouseWheel(event) {
+            // 如果滚轮在面板上，允许默认滚动（虽然目前面板内容不多，但这是好习惯）
+            if (event.target.closest('.glass-panel')) {
+                return;
+            }
+            event.preventDefault();
+            const fov = camera.fov + event.deltaY * 0.05;
+            camera.fov = THREE.MathUtils.clamp(fov, 20, 75); // 限制缩放范围
+            camera.updateProjectionMatrix();
+        }
+
+        // --- 鼠标悬停检测 (Raycaster) ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let intersectedBar = null; // 这个变量现在存储“被激活的Bar”，可能是直接悬停的，也可能是通过Dot悬停的
+        let lastMouseX = 0; // 新增：保存鼠标X坐标
+        let lastMouseY = 0; // 新增：保存鼠标Y坐标
+
+        window.addEventListener('mousemove', (event) => {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            lastMouseX = event.clientX; // 更新全局鼠标坐标
+            lastMouseY = event.clientY; // 更新全局鼠标坐标
+        });

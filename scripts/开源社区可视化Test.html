@@ -415,3 +415,41 @@ setInterval(function () {
     addData(true);
     chartRealtime.setOption({ xAxis: { data: dataTime }, series: [{ data: dataCommit }, { data: dataIssue }] });
 }, 2000);
+// Chart 2: 技术栈雷达 (Radar)
+const chartRadar = myChart('chart-radar');
+chartRadar.setOption({
+    color: ['#00f2ff', '#bd00ff'],
+    tooltip: {},
+    radar: {
+        indicator: [
+            { name: 'Frontend', max: 100 },
+            { name: 'Backend', max: 100 },
+            { name: 'DevOps', max: 100 },
+            { name: 'AI/ML', max: 100 },
+            { name: 'Security', max: 100 },
+            { name: 'Data', max: 100 }
+        ],
+        splitNumber: 4,
+        axisName: { color: '#00f2ff', fontFamily: 'Rajdhani', fontSize: 14 },
+        splitLine: { lineStyle: { color: ['rgba(0, 242, 255, 0.1)', 'rgba(0, 242, 255, 0.2)'] } },
+        splitArea: { show: false },
+        axisLine: { lineStyle: { color: 'rgba(0, 242, 255, 0.3)' } }
+    },
+    series: [{
+        type: 'radar',
+        data: [
+            {
+                value: [85, 90, 70, 40, 60, 50],
+                name: 'Current Year',
+                areaStyle: { color: 'rgba(0, 242, 255, 0.3)' },
+                lineStyle: { width: 2, color: '#00f2ff' }
+            },
+            {
+                value: [60, 70, 40, 20, 30, 30],
+                name: 'Last Year',
+                areaStyle: { color: 'rgba(189, 0, 255, 0.2)' },
+                lineStyle: { width: 1, type: 'dashed', color: '#bd00ff' }
+            }
+        ]
+    }]
+});
